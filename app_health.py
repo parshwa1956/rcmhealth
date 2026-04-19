@@ -16,7 +16,7 @@ import streamlit as st
 # CONFIG
 # =========================================================
 st.set_page_config(
-    page_title="Kaldi Healthcare Solutions | Revenue Integrity",
+    page_title="TUBA CITY REGIONAL HEALTH CARE | Revenue Integrity & Denials Prevention Platform",
     page_icon="🏥",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -4078,7 +4078,7 @@ elif active_tab == "Exports":
         st.markdown('<div class="section-title">Downloads</div>', unsafe_allow_html=True)
         st.download_button("Download Claims CSV", claims_df.to_csv(index=False).encode("utf-8") if not claims_df.empty else b"", "claims_workbench.csv", "text/csv", use_container_width=True)
         st.download_button("Download Recoverable Queue CSV", claims_df.sort_values(["priority_score", "recoverable_amount"], ascending=False).to_csv(index=False).encode("utf-8") if not claims_df.empty else b"", "recoverable_queue.csv", "text/csv", use_container_width=True)
-        st.download_button("Download Excel Workbook", excel_bytes, "kaldi_revenue_integrity_dashboard.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+        st.download_button("Download Excel Workbook", excel_bytes, "Tuba_revenue_integrity_dashboard.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
         st.download_button("Download DNFB CSV", dnfb_df.to_csv(index=False).encode("utf-8") if not dnfb_df.empty else b"", "dnfb_executive.csv", "text/csv", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with e2:
