@@ -2410,6 +2410,197 @@ def build_assurance_exception_queue(claims_df: pd.DataFrame, denial_ops_df: pd.D
     return out.head(40)
 
 
+INTEGRATION_ENVIRONMENTS = ["TEST", "QA", "PROD"]
+INTEGRATION_CONFIG_FIELDS = {
+    "partner_name": "Trading Partner",
+    "source_application": "Source Application",
+    "sftp_host": "sftp.partnerdomain.com",
+    "sftp_port": 22,
+    "auth_type": "Password",
+    "sftp_username": "",
+    "sftp_password": "",
+    "ssh_key_path": "/keys/partner_rsa.pem",
+    "interface_engine": "Interface Engine",
+    "enable_270": True,
+    "enable_271": True,
+    "enable_837": True,
+    "enable_835": True,
+    "remote_outbound_270": "/outbound/270",
+    "remote_inbound_271": "/inbound/271",
+    "remote_outbound_837": "/outbound/837",
+    "remote_inbound_835": "/inbound/835",
+    "filename_pattern_270": "270_{partner}_{timestamp}.edi",
+    "filename_pattern_271": "271_{partner}_{timestamp}.edi",
+    "filename_pattern_837": "837_{partner}_{timestamp}.edi",
+    "filename_pattern_835": "835_{partner}_{timestamp}.edi",
+    "archive_folder": "/archive",
+    "error_folder": "/error",
+    "overwrite_policy": "No overwrite",
+    "poll_frequency_minutes": 5,
+    "retention_days": 30,
+    "ack_tracking": "Enabled",
+    "sharepoint_site_name": "",
+    "sharepoint_library": "Shared Documents",
+    "dnfb_source_type": "SharePoint Folder",
+    "dnfb_source_location": "/sharepoint/dnfb",
+    "denials_source_type": "SharePoint Folder",
+    "denials_source_location": "/sharepoint/denials",
+    "prior_auths_source_type": "SharePoint Folder",
+    "prior_auths_source_location": "/sharepoint/prior-auths",
+    "exports_target_type": "SharePoint Folder",
+    "exports_target_location": "/sharepoint/exports",
+}
+
+
+def integration_env_key(env: str, field: str) -> str:
+    return f"ih_{env.lower()}_{field}"
+
+
+def ensure_integration_env_state() -> None:
+    for env in INTEGRATION_ENVIRONMENTS:
+        for field, default in INTEGRATION_CONFIG_FIELDS.items():
+            key = integration_env_key(env, field)
+            if key not in st.session_state:
+                st.session_state[key] = default
+
+
+def get_integration_env_config(env: str) -> Dict[str, Any]:
+    ensure_integration_env_state()
+    cfg: Dict[str, Any] = {"environment": env}
+    for field, default in INTEGRATION_CONFIG_FIELDS.items():
+        cfg[field] = st.session_state.get(integration_env_key(env, field), default)
+    return cfg
+
+
+def set_integration_env_config(env: str, config: Dict[str, Any]) -> None:
+    ensure_integration_env_state()
+    for field in INTEGRATION_CONFIG_FIELDS:
+        if field in config:
+            st.session_state[integration_env_key(env, field)] = config[field]
+
+
+def copy_integration_env_config(source_env: str, target_env: str) -> None:
+    set_integration_env_config(target_env, get_integration_env_config(source_env))
+
+
+def build_integration_config_validation(config: Dict[str, Any]) -> pd.DataFrame:
+    checks: List[Dict[str, str]] = []
+
+    def add_check(name: str, passed: bool, detail: str) -> None:
+        checks.append({"Check": name, "Result": "Ready" if passed else "Missing", "Detail": detail})
+
+    add_check("SFTP host", bool(str(config.get("sftp_host", "")).strip()), "Primary batch endpoint")
+    add_check("SFTP username", bool(str(config.get("sftp_username", "")).strip()), "Credential used by transport layer")
+    add_check("Authentication", bool(str(config.get("auth_type", "")).strip()), "Password or SSH key selected")
+    add_check("270 outbound folder", bool(str(config.get("remote_outbound_270", "")).strip()), "Eligibility request delivery path")
+    add_check("271 inbound folder", bool(str(config.get("remote_inbound_271", "")).strip()), "Eligibility response pickup path")
+    add_check("837 outbound folder", bool(str(config.get("remote_outbound_837", "")).strip()), "Claim submission delivery path")
+    add_check("835 inbound folder", bool(str(config.get("remote_inbound_835", "")).strip()), "Remit response pickup path")
+    add_check("Archive folder", bool(str(config.get("archive_folder", "")).strip()), "Processed file archive path")
+    add_check("Error folder", bool(str(config.get("error_folder", "")).strip()), "Failed file routing path")
+    sharepoint_used = any(str(config.get(k, "")) == "SharePoint Folder" for k in ["dnfb_source_type", "denials_source_type", "prior_auths_source_type", "exports_target_type"])
+    if sharepoint_used:
+        add_check("SharePoint site", bool(str(config.get("sharepoint_site_name", "")).strip()), "Required when non-Assurance modules use SharePoint folders")
+        add_check("SharePoint library", bool(str(config.get("sharepoint_library", "")).strip()), "Document library for folder-based module feeds")
+    return pd.DataFrame(checks)
+
+
+def build_integration_routing_summary(config: Dict[str, Any]) -> pd.DataFrame:
+    return pd.DataFrame([
+        {
+            "Lane": "Eligibility",
+            "Outbound": "270" if config.get("enable_270", True) else "Disabled",
+            "Inbound": "271" if config.get("enable_271", True) else "Disabled",
+            "Outbound Folder": config.get("remote_outbound_270", ""),
+            "Inbound Folder": config.get("remote_inbound_271", ""),
+            "Status": "Ready" if config.get("enable_270", True) and config.get("enable_271", True) else "Partial",
+        },
+        {
+            "Lane": "Claims",
+            "Outbound": "837" if config.get("enable_837", True) else "Disabled",
+            "Inbound": "835" if config.get("enable_835", True) else "Disabled",
+            "Outbound Folder": config.get("remote_outbound_837", ""),
+            "Inbound Folder": config.get("remote_inbound_835", ""),
+            "Status": "Ready" if config.get("enable_837", True) and config.get("enable_835", True) else "Partial",
+        },
+    ])
+
+
+def build_integration_environment_status() -> pd.DataFrame:
+    ensure_integration_env_state()
+    rows: List[Dict[str, Any]] = []
+    for env in INTEGRATION_ENVIRONMENTS:
+        cfg = get_integration_env_config(env)
+        validation_df = build_integration_config_validation(cfg)
+        ready_checks = int((validation_df["Result"] == "Ready").sum()) if not validation_df.empty else 0
+        total_checks = int(len(validation_df)) if not validation_df.empty else 0
+        readiness_pct = 0.0 if total_checks == 0 else (ready_checks / total_checks) * 100
+        rows.append({
+            "Environment": env,
+            "Trading Partner": str(cfg.get("partner_name", "")).strip() or "Not set",
+            "Source Application": str(cfg.get("source_application", "")).strip() or "Not set",
+            "Readiness": f"{readiness_pct:.1f}%",
+            "270 / 271": "Enabled" if cfg.get("enable_270", True) and cfg.get("enable_271", True) else "Partial",
+            "837 / 835": "Enabled" if cfg.get("enable_837", True) and cfg.get("enable_835", True) else "Partial",
+        })
+    return pd.DataFrame(rows)
+
+
+def build_module_connection_registry(config: Dict[str, Any]) -> pd.DataFrame:
+    sharepoint_site = str(config.get("sharepoint_site_name", "")).strip() or "Not set"
+    sharepoint_library = str(config.get("sharepoint_library", "")).strip() or "Shared Documents"
+
+    def describe_location(source_type: str, location: str) -> str:
+        if source_type == "SharePoint Folder":
+            base = f"{sharepoint_site} / {sharepoint_library}" if sharepoint_site != "Not set" else sharepoint_library
+            return f"{base}{location}" if location else base
+        return location
+
+    rows = [
+        {
+            "Module": "Assurance",
+            "Connection Type": "SFTP + Interface Engine",
+            "Location": "EDI lanes: 270/271 and 837/835",
+            "Formats": "EDI",
+            "Refresh Mode": "Polled transport",
+            "Status": "Configured",
+        },
+        {
+            "Module": "DNFB Executive",
+            "Connection Type": config.get("dnfb_source_type", "SharePoint Folder"),
+            "Location": describe_location(str(config.get("dnfb_source_type", "SharePoint Folder")), str(config.get("dnfb_source_location", ""))),
+            "Formats": "XLSX / CSV",
+            "Refresh Mode": "Folder pickup",
+            "Status": "Configured" if str(config.get("dnfb_source_location", "")).strip() else "Pending",
+        },
+        {
+            "Module": "Denials",
+            "Connection Type": config.get("denials_source_type", "SharePoint Folder"),
+            "Location": describe_location(str(config.get("denials_source_type", "SharePoint Folder")), str(config.get("denials_source_location", ""))),
+            "Formats": "XLSX / CSV",
+            "Refresh Mode": "Folder pickup",
+            "Status": "Configured" if str(config.get("denials_source_location", "")).strip() else "Pending",
+        },
+        {
+            "Module": "Prior Auths",
+            "Connection Type": config.get("prior_auths_source_type", "SharePoint Folder"),
+            "Location": describe_location(str(config.get("prior_auths_source_type", "SharePoint Folder")), str(config.get("prior_auths_source_location", ""))),
+            "Formats": "XLSX / CSV / API",
+            "Refresh Mode": "Folder pickup",
+            "Status": "Configured" if str(config.get("prior_auths_source_location", "")).strip() else "Pending",
+        },
+        {
+            "Module": "Exports",
+            "Connection Type": config.get("exports_target_type", "SharePoint Folder"),
+            "Location": describe_location(str(config.get("exports_target_type", "SharePoint Folder")), str(config.get("exports_target_location", ""))),
+            "Formats": "XLSX / CSV",
+            "Refresh Mode": "On demand / scheduled",
+            "Status": "Configured" if str(config.get("exports_target_location", "")).strip() else "Pending",
+        },
+    ]
+    return pd.DataFrame(rows)
+
+
 # =========================================================
 # SESSION STATE
 # =========================================================
@@ -3683,36 +3874,184 @@ elif active_tab == "Denials":
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif active_tab == "Integration Hub":
+    ensure_integration_env_state()
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">Integration Hub</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Connections will be configured during client deployment based on Tuba Network infrastructure, security review, and vendor onboarding requirements.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Simple connection setup for eligibility and claims EDI routing across SFTP and interface processing.</div>', unsafe_allow_html=True)
 
-    k1, k2, k3 = st.columns(3)
+    selected_env = st.selectbox(
+        "Environment Profile",
+        INTEGRATION_ENVIRONMENTS,
+        key="ih_selected_environment",
+        help="Each environment keeps its own separate Integration Hub configuration.",
+    )
+    env_prefix = selected_env.lower()
+
+    with st.expander("Open integration configuration", expanded=True):
+        left, right = st.columns([1.08, 1.0])
+
+        with left:
+            st.markdown('<div class="section-title">Connection Setup</div>', unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.text_input("Trading Partner", key=integration_env_key(selected_env, "partner_name"))
+            with c2:
+                st.text_input("Environment", value=selected_env, disabled=True, key=f"ih_env_display_{env_prefix}")
+
+            c3, c4 = st.columns(2)
+            with c3:
+                st.text_input("Source Application", key=integration_env_key(selected_env, "source_application"))
+            with c4:
+                st.selectbox("Authentication", ["Password", "SSH Key"], key=integration_env_key(selected_env, "auth_type"))
+
+            c5, c6 = st.columns(2)
+            with c5:
+                st.text_input("SFTP Host", key=integration_env_key(selected_env, "sftp_host"), placeholder="sftp.partnerdomain.com")
+            with c6:
+                st.number_input("Port", min_value=1, max_value=65535, step=1, key=integration_env_key(selected_env, "sftp_port"))
+
+            c7, c8 = st.columns(2)
+            with c7:
+                st.text_input("SFTP Username", key=integration_env_key(selected_env, "sftp_username"))
+            with c8:
+                st.text_input("SFTP Password / Secret", type="password", key=integration_env_key(selected_env, "sftp_password"))
+
+            c9, c10 = st.columns(2)
+            with c9:
+                st.text_input("Interface Engine", key=integration_env_key(selected_env, "interface_engine"))
+            with c10:
+                st.text_input("SSH Key Path", key=integration_env_key(selected_env, "ssh_key_path"))
+
+            c11, c12 = st.columns(2)
+            with c11:
+                st.text_input("Archive Folder", key=integration_env_key(selected_env, "archive_folder"))
+            with c12:
+                st.text_input("Error Folder", key=integration_env_key(selected_env, "error_folder"))
+
+        with right:
+            st.markdown('<div class="section-title">Routing Setup</div>', unsafe_allow_html=True)
+            r1, r2 = st.columns(2)
+            with r1:
+                st.checkbox("Enable 270 outbound", key=integration_env_key(selected_env, "enable_270"))
+                st.checkbox("Enable 837 outbound", key=integration_env_key(selected_env, "enable_837"))
+            with r2:
+                st.checkbox("Enable 271 inbound", key=integration_env_key(selected_env, "enable_271"))
+                st.checkbox("Enable 835 inbound", key=integration_env_key(selected_env, "enable_835"))
+
+            r3, r4 = st.columns(2)
+            with r3:
+                st.text_input("270 Outbound Folder", key=integration_env_key(selected_env, "remote_outbound_270"))
+                st.text_input("837 Outbound Folder", key=integration_env_key(selected_env, "remote_outbound_837"))
+            with r4:
+                st.text_input("271 Inbound Folder", key=integration_env_key(selected_env, "remote_inbound_271"))
+                st.text_input("835 Inbound Folder", key=integration_env_key(selected_env, "remote_inbound_835"))
+
+            r5, r6 = st.columns(2)
+            with r5:
+                st.text_input("270 Filename Pattern", key=integration_env_key(selected_env, "filename_pattern_270"))
+                st.text_input("837 Filename Pattern", key=integration_env_key(selected_env, "filename_pattern_837"))
+            with r6:
+                st.text_input("271 Filename Pattern", key=integration_env_key(selected_env, "filename_pattern_271"))
+                st.text_input("835 Filename Pattern", key=integration_env_key(selected_env, "filename_pattern_835"))
+
+            r7, r8, r9 = st.columns(3)
+            with r7:
+                st.selectbox("Overwrite Policy", ["No overwrite", "Allow overwrite", "Version existing"], key=integration_env_key(selected_env, "overwrite_policy"))
+            with r8:
+                st.number_input("Polling Frequency (min)", min_value=1, max_value=1440, step=1, key=integration_env_key(selected_env, "poll_frequency_minutes"))
+            with r9:
+                st.number_input("Retention (days)", min_value=1, max_value=3650, step=1, key=integration_env_key(selected_env, "retention_days"))
+
+            st.selectbox("Ack / Status Tracking", ["Enabled", "Disabled"], key=integration_env_key(selected_env, "ack_tracking"))
+
+        st.markdown('<div class="section-title" style="margin-top:8px;">Module Source Connections</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Use SharePoint folders or other sources for non-Assurance tabs while keeping Assurance on EDI routing.</div>', unsafe_allow_html=True)
+        m1, m2 = st.columns(2)
+        with m1:
+            st.text_input("SharePoint Site", key=integration_env_key(selected_env, "sharepoint_site_name"), placeholder="https://tenant.sharepoint.com/sites/site-name")
+            st.text_input("SharePoint Library", key=integration_env_key(selected_env, "sharepoint_library"))
+
+            d1, d2 = st.columns([1.0, 1.35])
+            with d1:
+                st.selectbox("DNFB Executive Source", ["SharePoint Folder", "SFTP Folder", "Manual Upload", "API"], key=integration_env_key(selected_env, "dnfb_source_type"))
+            with d2:
+                st.text_input("DNFB Executive Location", key=integration_env_key(selected_env, "dnfb_source_location"))
+
+            e1, e2 = st.columns([1.0, 1.35])
+            with e1:
+                st.selectbox("Denials Source", ["SharePoint Folder", "SFTP Folder", "Manual Upload", "API"], key=integration_env_key(selected_env, "denials_source_type"))
+            with e2:
+                st.text_input("Denials Location", key=integration_env_key(selected_env, "denials_source_location"))
+        with m2:
+            p1, p2 = st.columns([1.0, 1.35])
+            with p1:
+                st.selectbox("Prior Auths Source", ["SharePoint Folder", "SFTP Folder", "Manual Upload", "API"], key=integration_env_key(selected_env, "prior_auths_source_type"))
+            with p2:
+                st.text_input("Prior Auths Location", key=integration_env_key(selected_env, "prior_auths_source_location"))
+
+            x1, x2 = st.columns([1.0, 1.35])
+            with x1:
+                st.selectbox("Exports Target", ["SharePoint Folder", "SFTP Folder", "Local Download", "Email Delivery"], key=integration_env_key(selected_env, "exports_target_type"))
+            with x2:
+                st.text_input("Exports Location", key=integration_env_key(selected_env, "exports_target_location"))
+
+        action_cols = st.columns([1.0, 1.0, 1.15, 4.0])
+        with action_cols[0]:
+            if st.button("Copy TEST → QA", use_container_width=True, key="ih_copy_test_qa"):
+                copy_integration_env_config("TEST", "QA")
+                st.success("Copied TEST configuration into QA.")
+                st.rerun()
+        with action_cols[1]:
+            if st.button("Copy QA → PROD", use_container_width=True, key="ih_copy_qa_prod"):
+                copy_integration_env_config("QA", "PROD")
+                st.success("Copied QA configuration into PROD.")
+                st.rerun()
+        with action_cols[2]:
+            current_export_config = get_integration_env_config(selected_env)
+            st.download_button(
+                "Download Config JSON",
+                data=json.dumps(current_export_config, indent=2),
+                file_name=f"integration_hub_{selected_env.lower()}_config.json",
+                mime="application/json",
+                use_container_width=True,
+                key=f"ih_download_json_{env_prefix}",
+            )
+
+    integration_config = get_integration_env_config(selected_env)
+    validation_df = build_integration_config_validation(integration_config)
+    ready_checks = int((validation_df["Result"] == "Ready").sum()) if not validation_df.empty else 0
+    total_checks = int(len(validation_df)) if not validation_df.empty else 0
+    readiness_pct = 0.0 if total_checks == 0 else (ready_checks / total_checks) * 100
+
+    k1, k2, k3, k4 = st.columns(4)
     with k1:
-        render_kpi("SFTP", "Pending Deployment", "Secure batch file exchange for inbound and outbound files")
+        render_kpi("Config Readiness", pct(readiness_pct), f"{selected_env} profile completion")
     with k2:
-        render_kpi("SharePoint Folder", "Pending Deployment", "Internal managed folder intake for reports, workbooks, and exports")
+        render_kpi("Eligibility Lane", "270 / 271", f"{selected_env} request and response routing")
     with k3:
-        render_kpi("Third Party Vendor", "Pending Deployment", "External vendor connectivity configured during implementation")
+        render_kpi("Claims Lane", "837 / 835", f"{selected_env} claim and remit routing")
+    with k4:
+        lane_count = sum([int(bool(integration_config.get("enable_270")) or bool(integration_config.get("enable_271"))), int(bool(integration_config.get("enable_837")) or bool(integration_config.get("enable_835")))])
+        render_kpi("Configured Lanes", str(lane_count), f"{selected_env} lane groups enabled")
 
-    st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
-    integration_overview = pd.DataFrame([
-        {"Integration Type": "SFTP", "Purpose": "Automated file intake and outbound delivery", "Typical Use": "835 / 837 / DNFB / denial files", "Status": "Pending Deployment"},
-        {"Integration Type": "SharePoint Folder", "Purpose": "Internal folder-based uploads and monitoring", "Typical Use": "Operational workbooks, reports, exports", "Status": "Pending Deployment"},
-        {"Integration Type": "Third Party Vendor", "Purpose": "Vendor data exchange and managed feeds", "Typical Use": "Clearinghouse, denial partner, RPA vendor", "Status": "Pending Deployment"},
-    ])
-    st.markdown('<div class="section-title">Integration Channels</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Connections will be configured during client deployment based on Tuba Network infrastructure, security review, and vendor onboarding requirements.</div>', unsafe_allow_html=True)
-    render_html_table(integration_overview, max_height=220)
+    bottom_left, bottom_right = st.columns([1.0, 1.0])
+    with bottom_left:
+        st.markdown('<div class="section-title">Configuration Validation</div>', unsafe_allow_html=True)
+        render_html_table(validation_df, max_height=230)
+    with bottom_right:
+        st.markdown('<div class="section-title">Routing Summary</div>', unsafe_allow_html=True)
+        render_html_table(build_integration_routing_summary(integration_config), max_height=230)
 
-    st.markdown('<div class="section-title">Integration Notes</div>', unsafe_allow_html=True)
-    notes_df = pd.DataFrame([
-        {"Area": "Connection Setup", "Detail": "Store connection details, path names, and delivery expectations for each feed."},
-        {"Area": "Inbound Monitoring", "Detail": "Track file arrival, processing status, and last successful sync."},
-        {"Area": "Outbound Delivery", "Detail": "Support export routing to SFTP, SharePoint folder, or approved vendor endpoint."},
-        {"Area": "Governance", "Detail": "Keep access controlled and aligned with operational and IT review."},
-    ])
-    render_html_table(notes_df, max_height=240)
+    extra_left, extra_right = st.columns([1.0, 1.0])
+    with extra_left:
+        st.markdown('<div class="section-title">Module Connection Registry</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Non-Assurance tabs can use SharePoint folders, SFTP folders, APIs, or manual uploads from the same environment profile.</div>', unsafe_allow_html=True)
+        render_html_table(build_module_connection_registry(integration_config), max_height=260)
+    with extra_right:
+        st.markdown('<div class="section-title">Environment Profiles</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Each environment stores its own settings, so TEST, QA, and PROD can be managed separately from the same Integration Hub.</div>', unsafe_allow_html=True)
+        render_html_table(build_integration_environment_status(), max_height=260)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif active_tab == "Action Center":
