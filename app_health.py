@@ -2303,7 +2303,7 @@ def build_assurance_status_summary(claims_df: pd.DataFrame, denial_ops_df: pd.Da
         paid_amt = pd.to_numeric(claims_df.get("paid_amount", 0), errors="coerce").fillna(0)
         denied_amt = pd.to_numeric(claims_df.get("denied_amount", 0), errors="coerce").fillna(0)
         rows.extend([
-            {"Status": "Paid", "Accounts": int((paid_amt >= claim_amt) & (claim_amt > 0)).sum(), "Dollar Exposure": float(claim_amt[(paid_amt >= claim_amt) & (claim_amt > 0)].sum()), "Current Signal": "835 remit matched / paid in full"},
+            {"Status": "Paid", "Accounts": int(((paid_amt >= claim_amt) & (claim_amt > 0)).sum()), "Dollar Exposure": float(claim_amt[(paid_amt >= claim_amt) & (claim_amt > 0)].sum()), "Current Signal": "835 remit matched / paid in full"},
             {"Status": "Partial Paid", "Accounts": int(((paid_amt > 0) & (paid_amt < claim_amt)).sum()), "Dollar Exposure": float((claim_amt - paid_amt)[(paid_amt > 0) & (paid_amt < claim_amt)].sum()), "Current Signal": "Needs variance or underpayment review"},
             {"Status": "No Remit / Unresolved", "Accounts": int(((claim_amt > 0) & (paid_amt == 0)).sum()), "Dollar Exposure": float(claim_amt[(claim_amt > 0) & (paid_amt == 0)].sum()), "Current Signal": "Submitted but no payment signal"},
         ])
