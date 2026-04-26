@@ -3480,9 +3480,6 @@ elif active_tab == "Assurance":
     with a8:
         render_kpi("Readiness Score", pct(float(assurance_kpis["Readiness Score"])), "How much assurance data is active today")
 
-    st.markdown('<div class="section-title" style="margin-top:12px;">Data Readiness</div>', unsafe_allow_html=True)
-    render_html_table(assurance_readiness_df, max_height=260)
-
     s1, s2 = st.columns([1.05, 1.35])
     with s1:
         st.markdown('<div class="section-title">Submission-to-Payment Summary</div>', unsafe_allow_html=True)
@@ -3498,33 +3495,11 @@ elif active_tab == "Assurance":
         else:
             render_html_table(assurance_payer_df, max_height=260)
 
-    q1, q2 = st.columns([1.45, 1.0])
-    with q1:
-        st.markdown('<div class="section-title">Reimbursement Exception Queue</div>', unsafe_allow_html=True)
-        if assurance_queue_df.empty:
-            st.info("No current reimbursement exceptions. This queue will show denied, unresolved, partial-paid, and high-risk payer items.")
-        else:
-            render_html_table(assurance_queue_df, max_height=380)
-
-    with q2:
-        st.markdown('<div class="section-title">What Assurance Uses</div>', unsafe_allow_html=True)
-        st.markdown(
-            """
-            <div style="background:#fbfdff;border:1px solid #dbe5f2;border-radius:16px;padding:16px 16px 12px 16px;color:#50657f;font-size:13px;line-height:1.8;">
-                <b style="color:#0f2f5e;">Implemented now</b><br>
-                • Denied dollars and recoverable opportunity<br>
-                • Payer reimbursement risk summary<br>
-                • Reimbursement exception queue<br>
-                • Readiness tracking for 835 / 837 / denials / DNFB<br><br>
-                <b style="color:#0f2f5e;">Activates fully with more files</b><br>
-                • 835 remits → paid / partial-paid / remit intelligence<br>
-                • 837 claims → submission-to-payment tracking<br>
-                • Contract logic → underpayment variance review<br>
-                • Claim status feeds → accepted / rejected / pending tracking
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    st.markdown('<div class="section-title">Reimbursement Exception Queue</div>', unsafe_allow_html=True)
+    if assurance_queue_df.empty:
+        st.info("No current reimbursement exceptions. This queue will show denied, unresolved, partial-paid, and high-risk payer items.")
+    else:
+        render_html_table(assurance_queue_df, max_height=380)
 
     download_tab_excel(
         "Download Assurance Excel",
