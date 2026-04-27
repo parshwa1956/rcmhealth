@@ -647,6 +647,42 @@ def money(value: Any) -> str:
     except Exception:
         return "$0.00"
 
+CURRENCY_KEYWORDS = (
+    "amount", "dollar", "dollars", "paid", "billed", "denied", "recoverable",
+    "reimbursement", "payment", "exposure", "balance", "variance", "opportunity",
+    "allowed", "charges", "charge", "recovery"
+)
+
+def is_currency_like_column(col_name: Any) -> bool:
+    name = str(col_name).strip().lower()
+    if "date" in name:
+        return False
+    return any(token in name for token in CURRENCY_KEYWORDS)
+
+def format_currency_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    out = df.copy()
+    for col in out.columns:
+        if not is_currency_like_column(col):
+            continue
+        series = out[col]
+        numeric = pd.to_numeric(series, errors="coerce")
+        if numeric.notna().sum() == 0:
+            continue
+        out[col] = numeric.fillna(0).map(money)
+    return out
+
+# Apply one shared currency formatter to every Streamlit dataframe render path.
+_STREAMLIT_DATAFRAME = st.dataframe
+
+def _dataframe_with_currency_format(data=None, *args, **kwargs):
+    if isinstance(data, pd.DataFrame):
+        data = format_currency_columns(data)
+    return _STREAMLIT_DATAFRAME(data, *args, **kwargs)
+
+st.dataframe = _dataframe_with_currency_format
+
 def pct(value: float) -> str:
     try:
         return f"{float(value):.1f}%"
@@ -1406,6 +1442,51 @@ def build_claims_lifecycle_summary(lifecycle_df: pd.DataFrame) -> tuple[pd.DataF
     queue_df = queue_df.sort_values(["priority_score", "recoverable_amount", "claim_amount"], ascending=False)
     return stage_df, aging_df, queue_df
 
+
+
+
+def _looks_like_money_column(col_name: str) -> bool:
+    name = str(col_name or "").strip().lower().replace("$", "")
+    if not name:
+        return False
+    money_tokens = [
+        "amount", "dollar", "exposure", "recoverable", "recovery", "billed",
+        "paid", "payment", "balance", "opportunity", "variance", "denial total",
+        "total dnfb", "auth denial", "appeal exposure", "denied dollars",
+    ]
+    non_money_tokens = [
+        "aging", "days", "score", "rate", "pct", "percent", "rows", "visits",
+        "accounts", "candidates", "count", "rank", "id", "status", "priority",
+        "signal", "facility", "payer", "patient", "owner", "source",
+    ]
+    if any(token in name for token in non_money_tokens):
+        return False
+    return any(token in name for token in money_tokens)
+
+def autoformat_table_amounts(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    out = df.copy()
+    for col in out.columns:
+        if not _looks_like_money_column(col):
+            continue
+        series = out[col]
+        if pd.api.types.is_numeric_dtype(series):
+            out[col] = pd.to_numeric(series, errors="coerce").fillna(0).map(lambda v: f"${v:,.2f}")
+            continue
+        converted = pd.to_numeric(series.astype(str).str.replace(",", "", regex=False).str.replace("$", "", regex=False), errors="coerce")
+        if converted.notna().sum() == len(series):
+            out[col] = converted.fillna(0).map(lambda v: f"${v:,.2f}")
+    return out
+
+_original_st_dataframe = st.dataframe
+
+def _autoformatted_st_dataframe(data=None, *args, **kwargs):
+    if isinstance(data, pd.DataFrame):
+        data = autoformat_table_amounts(data)
+    return _original_st_dataframe(data, *args, **kwargs)
+
+st.dataframe = _autoformatted_st_dataframe
 
 def format_claims_lifecycle_display(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -2756,19 +2837,17 @@ def render_html_table(df: pd.DataFrame, max_height: int = 320) -> None:
         st.info("No data available.")
         return
 
-    show_df = df.copy()
+    show_df = format_currency_columns(df.copy())
 
-    money_cols = [
+    pct_cols = [
         c for c in show_df.columns
-        if any(x in c.lower() for x in ["amount", "billed", "paid", "denied", "recoverable"])
+        if "pct" in c.lower() or "rate" in c.lower() or "share" in c.lower() or "percent" in c.lower()
     ]
-    pct_cols = [c for c in show_df.columns if "pct" in c.lower() or "rate" in c.lower()]
-
-    for c in money_cols:
-        show_df[c] = pd.to_numeric(show_df[c], errors="coerce").fillna(0).map(lambda v: f"${v:,.2f}")
 
     for c in pct_cols:
-        show_df[c] = pd.to_numeric(show_df[c], errors="coerce").fillna(0).map(lambda v: f"{v:.1f}%")
+        numeric_pct = pd.to_numeric(show_df[c], errors="coerce")
+        if numeric_pct.notna().sum() > 0:
+            show_df[c] = numeric_pct.fillna(0).map(lambda v: f"{v:.1f}%")
 
     html_parts = [
         f'<div style="overflow-x:auto; max-height:{max_height}px; overflow-y:auto; border:1px solid #dbe5f2; border-radius:14px; background:white;">'
@@ -2802,12 +2881,15 @@ def render_clickable_visit_summary(df: pd.DataFrame, max_height: int = 360, para
         st.info("No actionable denials available yet.")
         return
     show_df = df.copy()
-    money_cols = [c for c in show_df.columns if any(x in c.lower() for x in ["amount", "billed", "paid", "denied", "recoverable"])]
-    pct_cols = [c for c in show_df.columns if "pct" in c.lower() or "rate" in c.lower()]
-    for c in money_cols:
-        show_df[c] = pd.to_numeric(show_df[c], errors="coerce").fillna(0).map(lambda v: f"${v:,.2f}")
+    show_df = format_currency_columns(show_df)
+    pct_cols = [
+        c for c in show_df.columns
+        if "pct" in c.lower() or "rate" in c.lower() or "share" in c.lower() or "percent" in c.lower()
+    ]
     for c in pct_cols:
-        show_df[c] = pd.to_numeric(show_df[c], errors="coerce").fillna(0).map(lambda v: f"{v:.1f}%")
+        numeric_pct = pd.to_numeric(show_df[c], errors="coerce")
+        if numeric_pct.notna().sum() > 0:
+            show_df[c] = numeric_pct.fillna(0).map(lambda v: f"{v:.1f}%")
 
     html_rows = ['<div style="overflow-x:auto; max-height:' + str(max_height) + 'px; overflow-y:auto; border:1px solid #dbe5f2; border-radius:14px; background:white;">']
     html_rows.append('<table style="border-collapse:collapse; min-width:1100px; width:100%; font-size:14px;">')
@@ -2873,13 +2955,11 @@ def format_operational_display(df: pd.DataFrame) -> pd.DataFrame:
     }
     out = out.rename(columns={k: v for k, v in rename_map.items() if k in out.columns})
 
-    money_cols = [c for c in ["Denied Amount", "Est. Recoverable", "Recoverable Amount"] if c in out.columns]
+    out = format_currency_columns(out)
     pct_cols = [c for c in ["Appeal Rate %", "Quick Win Rate %"] if c in out.columns]
     day_cols = [c for c in ["Aging Days", "Avg Aging"] if c in out.columns]
     bool_cols = [c for c in ["Quick Win", "Appeal Candidate"] if c in out.columns]
 
-    for col in money_cols:
-        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0).map(lambda v: f"${v:,.2f}")
     for col in pct_cols:
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0).map(lambda v: f"{v:.1f}%")
     for col in day_cols:
