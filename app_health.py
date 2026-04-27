@@ -1747,9 +1747,14 @@ def read_denials_excel(uploaded_file) -> pd.DataFrame:
         "status": "denial_status",
         "denialaging": "denial_aging",
         "aging": "denial_aging",
+        "denialdate": "denial_date",
+        "dischargedtm": "discharge_date",
+        "dischargedate": "discharge_date",
         "primaryinsuranceplanname": "primary_insurance",
         "insuranceplanname": "primary_insurance",
         "primaryinsurance": "primary_insurance",
+        "secondaryinsuranceplanname": "secondary_insurance",
+        "secondaryinsurance": "secondary_insurance",
         "servicetype": "service_type",
         "facility": "facility",
         "worksheetid": "worksheet_id",
@@ -1766,17 +1771,23 @@ def read_denials_excel(uploaded_file) -> pd.DataFrame:
     if "visit_id" not in out.columns or "carc_code" not in out.columns or "denial_amount" not in out.columns:
         return pd.DataFrame()
 
-    for col in ["visit_id", "carc_code", "carc_desc", "denial_category", "denial_status", "primary_insurance", "service_type", "facility", "visit_type", "patient_name"]:
+    for col in ["visit_id", "carc_code", "carc_desc", "denial_category", "denial_status", "primary_insurance", "secondary_insurance", "service_type", "facility", "visit_type", "patient_name"]:
         if col in out.columns:
             out[col] = out[col].astype(str).replace("nan", "").fillna("").str.strip()
     out["visit_id"] = out["visit_id"].astype(str).str.replace(".0", "", regex=False).str.strip()
     out["carc_code"] = out["carc_code"].astype(str).str.upper().str.replace(".0", "", regex=False).str.strip()
+    if "episode_id" in out.columns:
+        out["episode_id"] = out["episode_id"].astype(str).replace("nan", "").fillna("").str.replace(".0", "", regex=False).str.strip()
 
     out["denial_amount"] = pd.to_numeric(out["denial_amount"], errors="coerce").fillna(0.0)
     if "denial_aging" in out.columns:
         out["denial_aging"] = pd.to_numeric(out["denial_aging"], errors="coerce").fillna(0)
     if "billed_date" in out.columns:
         out["billed_date"] = pd.to_datetime(out["billed_date"], errors="coerce")
+    if "denial_date" in out.columns:
+        out["denial_date"] = pd.to_datetime(out["denial_date"], errors="coerce")
+    if "discharge_date" in out.columns:
+        out["discharge_date"] = pd.to_datetime(out["discharge_date"], errors="coerce")
 
     out["excluded_carc_flag"] = out["carc_code"].isin(EXCLUDED_CARC_CODES)
     out = out[out["visit_id"].ne("")].copy()
@@ -1808,24 +1819,44 @@ def build_denial_visit_summary(denial_df: pd.DataFrame) -> pd.DataFrame:
     if denial_df.empty:
         return pd.DataFrame()
 
+    def first_text(series: pd.Series) -> str:
+        for val in series:
+            if pd.isna(val):
+                continue
+            txt = str(val).strip()
+            if txt and txt.lower() != "nan" and txt.lower() != "nat":
+                return txt
+        return ""
+
+    def first_date(series: pd.Series) -> str:
+        parsed = pd.to_datetime(series, errors="coerce").dropna()
+        if parsed.empty:
+            return ""
+        return parsed.iloc[0].strftime("%Y-%m-%d")
+
     summary = denial_df.groupby("visit_id", as_index=False).agg(
-        episode_id=("episode_id", lambda s: next((x for x in s.astype(str) if x and x.lower() != "nan"), "")) if "episode_id" in denial_df.columns else ("visit_id", lambda s: ""),
-        total_denial_amount=("denial_amount", "sum"),
+        episode_id=("episode_id", first_text) if "episode_id" in denial_df.columns else ("visit_id", lambda s: ""),
         denial_rows=("carc_code", "count"),
-        carc_codes=("carc_code", lambda s: ", ".join(sorted(set([x for x in s.astype(str) if x]))[:6])),
-        carc_reason=("carc_desc", lambda s: ", ".join(sorted(set([x for x in s.astype(str) if x]))[:3])),
-        denial_categories=("denial_category", lambda s: ", ".join(sorted(set([x for x in s.astype(str) if x]))[:4])),
-        primary_insurance=("primary_insurance", lambda s: next((x for x in s.astype(str) if x), "")),
-        denial_status=("denial_status", lambda s: next((x for x in s.astype(str) if x), "")),
-        denial_aging=("denial_aging", "max"),
-        facility=("facility", lambda s: next((x for x in s.astype(str) if x), "")),
-        service_type=("service_type", lambda s: next((x for x in s.astype(str) if x), "")),
-        recommended_action=("recommended_action", lambda s: next((x for x in s.astype(str) if x), "")),
-        priority_level=("priority_level", lambda s: next((x for x in s.astype(str) if x), "")),
-    ).sort_values(["total_denial_amount", "denial_rows"], ascending=False).reset_index(drop=True)
+        carc_codes=("carc_code", lambda s: ", ".join(sorted(set([x for x in s.astype(str) if x and x.lower() != "nan"]))[:6])),
+        carc_reason=("carc_desc", lambda s: ", ".join(sorted(set([x for x in s.astype(str) if x and x.lower() != "nan"]))[:3])),
+        denial_date=("denial_date", first_date) if "denial_date" in denial_df.columns else ("visit_id", lambda s: ""),
+        discharge_date=("discharge_date", first_date) if "discharge_date" in denial_df.columns else ("visit_id", lambda s: ""),
+        primary_insurance=("primary_insurance", first_text) if "primary_insurance" in denial_df.columns else ("visit_id", lambda s: ""),
+        secondary_insurance=("secondary_insurance", first_text) if "secondary_insurance" in denial_df.columns else ("visit_id", lambda s: ""),
+        denial_status=("denial_status", first_text) if "denial_status" in denial_df.columns else ("visit_id", lambda s: ""),
+        facility=("facility", first_text) if "facility" in denial_df.columns else ("visit_id", lambda s: ""),
+        denial_amount=("denial_amount", "sum"),
+        denial_aging=("denial_aging", "max") if "denial_aging" in denial_df.columns else ("visit_id", lambda s: 0),
+        priority_level=("priority_level", first_text) if "priority_level" in denial_df.columns else ("visit_id", lambda s: ""),
+    ).sort_values(["denial_amount", "denial_rows"], ascending=False).reset_index(drop=True)
 
     summary.insert(0, "no", range(1, len(summary) + 1))
-    return summary
+    ordered_cols = [
+        "no", "visit_id", "episode_id", "denial_rows", "carc_codes", "carc_reason",
+        "denial_date", "discharge_date", "primary_insurance", "secondary_insurance",
+        "denial_status", "facility", "denial_amount", "denial_aging", "priority_level",
+    ]
+    return summary[[c for c in ordered_cols if c in summary.columns]]
 
 
 def enrich_denial_operations(df: pd.DataFrame) -> pd.DataFrame:
@@ -2041,22 +2072,6 @@ def render_denial_visit_selector_table(df: pd.DataFrame, selected_key: str, max_
         st.info("No actionable denials available yet.")
         return
     show_df = df.head(max_rows).copy()
-    display_cols = [c for c in ["visit_id", "episode_id", "total_denial_amount", "denial_rows", "carc_codes", "carc_reason", "denial_categories", "primary_insurance", "recommended_action"] if c in show_df.columns]
-    header_map = {
-        "visit_id": "Visit Id",
-        "episode_id": "Episode Id",
-        "total_denial_amount": "Total Denial Amount",
-        "denial_rows": "Denial Rows",
-        "carc_codes": "Carc Codes",
-        "carc_reason": "Carc Reason",
-        "denial_categories": "Denial Categories",
-        "primary_insurance": "Primary Insurance",
-        "recommended_action": "Recommended Action",
-    }
-    display = show_df[display_cols].rename(columns=header_map).copy()
-    if "Total Denial Amount" in display.columns:
-        display["Total Denial Amount"] = pd.to_numeric(display["Total Denial Amount"], errors="coerce").fillna(0.0)
-    st.dataframe(display, use_container_width=True, hide_index=True, height=360)
 
     selector_col1, selector_col2 = st.columns([1.2, 2.2])
     visit_options = show_df["visit_id"].astype(str).tolist()
@@ -2074,7 +2089,7 @@ def render_denial_visit_selector_table(df: pd.DataFrame, selected_key: str, max_
         if selected:
             row = show_df[show_df["visit_id"].astype(str) == str(selected)].head(1)
             if not row.empty:
-                total_amt = float(pd.to_numeric(row["total_denial_amount"], errors="coerce").fillna(0).iloc[0])
+                total_amt = float(pd.to_numeric(row["denial_amount"], errors="coerce").fillna(0).iloc[0])
                 denial_rows = int(pd.to_numeric(row["denial_rows"], errors="coerce").fillna(0).iloc[0])
                 payer = str(row["primary_insurance"].iloc[0]) if "primary_insurance" in row.columns else "-"
                 episode = str(row["episode_id"].iloc[0]) if "episode_id" in row.columns else "-"
@@ -3480,26 +3495,38 @@ elif active_tab == "Assurance":
     with a8:
         render_kpi("Readiness Score", pct(float(assurance_kpis["Readiness Score"])), "How much assurance data is active today")
 
+    assurance_status_display_df = assurance_status_df.copy()
+    if not assurance_status_display_df.empty and "Dollar Exposure" in assurance_status_display_df.columns:
+        assurance_status_display_df["Dollar Exposure"] = pd.to_numeric(assurance_status_display_df["Dollar Exposure"], errors="coerce").fillna(0).map(money)
+
+    assurance_payer_display_df = assurance_payer_df.copy()
+    if not assurance_payer_display_df.empty and "Dollar Exposure" in assurance_payer_display_df.columns:
+        assurance_payer_display_df["Dollar Exposure"] = pd.to_numeric(assurance_payer_display_df["Dollar Exposure"], errors="coerce").fillna(0).map(money)
+
     s1, s2 = st.columns([1.05, 1.35])
     with s1:
         st.markdown('<div class="section-title">Submission-to-Payment Summary</div>', unsafe_allow_html=True)
-        if assurance_status_df.empty:
+        if assurance_status_display_df.empty:
             st.info("Upload 835 and 837 files to activate submission-to-payment tracking. Current denial and DNFB files still support payer-risk and reimbursement-opportunity views.")
         else:
-            render_html_table(assurance_status_df, max_height=260)
+            render_html_table(assurance_status_display_df, max_height=260)
 
     with s2:
-        st.markdown('<div class="section-title">Payer Assurance Summary</div>', unsafe_allow_html=True)
-        if assurance_payer_df.empty:
+        st.markdown('<div class="section-title">Payer Summary</div>', unsafe_allow_html=True)
+        if assurance_payer_display_df.empty:
             st.info("Upload denials, 835, or 837 files to populate payer assurance trends.")
         else:
-            render_html_table(assurance_payer_df, max_height=260)
+            render_html_table(assurance_payer_display_df, max_height=260)
+
+    assurance_queue_display_df = assurance_queue_df.copy()
+    if not assurance_queue_display_df.empty and "Dollar Exposure" in assurance_queue_display_df.columns:
+        assurance_queue_display_df["Dollar Exposure"] = pd.to_numeric(assurance_queue_display_df["Dollar Exposure"], errors="coerce").fillna(0).map(money)
 
     st.markdown('<div class="section-title">Reimbursement Exception Queue</div>', unsafe_allow_html=True)
-    if assurance_queue_df.empty:
+    if assurance_queue_display_df.empty:
         st.info("No current reimbursement exceptions. This queue will show denied, unresolved, partial-paid, and high-risk payer items.")
     else:
-        render_html_table(assurance_queue_df, max_height=380)
+        render_html_table(assurance_queue_display_df, max_height=380)
 
     download_tab_excel(
         "Download Assurance Excel",
