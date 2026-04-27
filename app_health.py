@@ -3582,7 +3582,12 @@ elif active_tab == "Recoverable":
     else:
         queue = claims_df.sort_values(["priority_score", "recoverable_amount"], ascending=False)
         cols = [c for c in ["claim_id", "patient_name", "payer_name", "claim_amount", "denied_amount", "recoverable_amount", "recovery_confidence", "recommended_action", "priority_level"] if c in queue.columns]
-        st.dataframe(queue[cols], use_container_width=True, hide_index=True, height=460)
+        queue_display = queue[cols].copy()
+        amount_cols = [c for c in ["claim_amount", "denied_amount", "recoverable_amount"] if c in queue_display.columns]
+        for c in amount_cols:
+            queue_display[c] = pd.to_numeric(queue_display[c], errors="coerce").fillna(0).map(money)
+        queue_display.columns = [str(c).replace("_", " ").title() for c in queue_display.columns]
+        st.dataframe(queue_display, use_container_width=True, hide_index=True, height=460)
     st.markdown('</div>', unsafe_allow_html=True)
     download_tab_excel(
         "Download Recoverable Excel",
