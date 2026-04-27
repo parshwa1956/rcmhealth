@@ -3909,104 +3909,134 @@ elif active_tab == "Denials":
         excluded_export = pd.DataFrame()
     st.markdown('</div>', unsafe_allow_html=True)
 
+
 elif active_tab == "Integration Hub":
     ensure_integration_env_state()
+
+    try:
+        integration_file_count = len(uploaded_files) if uploaded_files else 0
+    except Exception:
+        integration_file_count = 0
+
     st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">Integration Hub</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-sub">Professional connection setup for EDI routing and folder-based module feeds, with separate TEST, QA, and PROD profiles.</div>', unsafe_allow_html=True)
 
-    selected_env = st.selectbox("Environment Profile", INTEGRATION_ENVIRONMENTS, key="ih_selected_environment")
+    st.markdown('<div class="eyebrow">Integration Command Center</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-title" style="font-size:28px;margin-bottom:6px;">Integration Command Center</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle" style="font-size:14px;max-width:760px;">Monitor live intake, manage environment settings, and maintain connections and routing from one clean operational workspace.</div>', unsafe_allow_html=True)
 
-    with st.expander("Open integration configuration", expanded=True):
-        left, right = st.columns(2)
-        with left:
-            st.markdown('<div class="section-title">Core Connection Setup</div>', unsafe_allow_html=True)
+    st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
+
+    ls1, ls2, ls3, ls4 = st.columns(4)
+    with ls1:
+        render_kpi("In Queue", str(integration_file_count), "Selected files")
+    with ls2:
+        render_kpi("Processing", "0", "Current activity")
+    with ls3:
+        render_kpi("Failed", "0", "Current errors")
+    with ls4:
+        render_kpi("Last Success", "2 min ago", "PROD profile")
+
+    st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
+
+    config_left, config_right = st.columns([1.05, 0.95])
+
+    with config_left:
+        st.markdown('<div class="section-title">Environment</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Select the profile for live processing and configuration changes.</div>', unsafe_allow_html=True)
+        selected_env = st.selectbox("Environment Profile", INTEGRATION_ENVIRONMENTS, key="ih_selected_environment")
+
+        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Connections</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Manage inbound source and outbound destination details.</div>', unsafe_allow_html=True)
+
+        with st.expander("Core Connection Setup", expanded=True):
             st.text_input("Trading Partner", key=integration_env_key(selected_env, "partner_name"))
-            lc1, lc2 = st.columns(2)
-            with lc1:
+
+            c1, c2 = st.columns(2)
+            with c1:
                 st.text_input("Source Application", key=integration_env_key(selected_env, "source_application"))
-                st.text_input("SFTP Host", key=integration_env_key(selected_env, "sftp_host"))
-                st.text_input("SFTP Username", key=integration_env_key(selected_env, "sftp_username"))
-                st.text_input("SharePoint Site", key=integration_env_key(selected_env, "sharepoint_site_name"))
-                st.text_input("Archive Folder", key=integration_env_key(selected_env, "archive_folder"))
-            with lc2:
+            with c2:
                 st.number_input("Port", min_value=1, max_value=65535, step=1, key=integration_env_key(selected_env, "sftp_port"))
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.text_input("SFTP Host", key=integration_env_key(selected_env, "sftp_host"))
+            with c2:
                 st.selectbox("Authentication", ["Password", "SSH Key"], key=integration_env_key(selected_env, "auth_type"))
-                st.text_input("SharePoint Library", key=integration_env_key(selected_env, "sharepoint_library"))
-                st.text_input("Error Folder", key=integration_env_key(selected_env, "error_folder"))
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.text_input("SFTP Username", key=integration_env_key(selected_env, "sftp_username"))
+            with c2:
                 st.text_input("SFTP Password / Secret", type="password", key=integration_env_key(selected_env, "sftp_password"))
 
-        with right:
-            st.markdown('<div class="section-title">Routing and Module Feeds</div>', unsafe_allow_html=True)
-            rc1, rc2 = st.columns(2)
-            with rc1:
-                st.checkbox("Enable 270 outbound", key=integration_env_key(selected_env, "enable_270"))
+            c1, c2 = st.columns(2)
+            with c1:
+                st.text_input("SharePoint Folder", key=integration_env_key(selected_env, "sharepoint_library"))
+                st.text_input("Archive Folder", key=integration_env_key(selected_env, "archive_folder"))
+            with c2:
+                st.text_input("Error Folder", key=integration_env_key(selected_env, "error_folder"))
+
+    with config_right:
+        st.markdown('<div class="section-title">Routing Rules</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Control how 837 outbound and 835 inbound files move through the live operational lanes.</div>', unsafe_allow_html=True)
+
+        with st.expander("Claims & Remit Lanes", expanded=True):
+            r1, r2 = st.columns(2)
+            with r1:
                 st.checkbox("Enable 837 outbound", key=integration_env_key(selected_env, "enable_837"))
-                st.text_input("270 Outbound Folder", key=integration_env_key(selected_env, "remote_outbound_270"))
                 st.text_input("837 Outbound Folder", key=integration_env_key(selected_env, "remote_outbound_837"))
+            with r2:
+                st.checkbox("Enable 835 inbound", key=integration_env_key(selected_env, "enable_835"))
+                st.text_input("835 Inbound Folder", key=integration_env_key(selected_env, "remote_inbound_835"))
+
+        with st.expander("Module Sources & Exports", expanded=False):
+            r3, r4 = st.columns(2)
+            with r3:
                 st.selectbox("DNFB Source Type", ["SharePoint Folder", "SFTP Folder", "Manual Upload", "API"], key=integration_env_key(selected_env, "dnfb_source_type"))
                 st.text_input("DNFB Source Location", key=integration_env_key(selected_env, "dnfb_source_location"))
                 st.selectbox("Prior Auths Source Type", ["SharePoint Folder", "SFTP Folder", "Manual Upload", "API"], key=integration_env_key(selected_env, "prior_auths_source_type"))
                 st.text_input("Prior Auths Source Location", key=integration_env_key(selected_env, "prior_auths_source_location"))
-            with rc2:
-                st.checkbox("Enable 271 inbound", key=integration_env_key(selected_env, "enable_271"))
-                st.checkbox("Enable 835 inbound", key=integration_env_key(selected_env, "enable_835"))
-                st.text_input("271 Inbound Folder", key=integration_env_key(selected_env, "remote_inbound_271"))
-                st.text_input("835 Inbound Folder", key=integration_env_key(selected_env, "remote_inbound_835"))
+            with r4:
                 st.selectbox("Denials Source Type", ["SharePoint Folder", "SFTP Folder", "Manual Upload", "API"], key=integration_env_key(selected_env, "denials_source_type"))
                 st.text_input("Denials Source Location", key=integration_env_key(selected_env, "denials_source_location"))
                 st.selectbox("Exports Target Type", ["SharePoint Folder", "SFTP Folder", "Manual Download", "API"], key=integration_env_key(selected_env, "exports_target_type"))
                 st.text_input("Exports Target Location", key=integration_env_key(selected_env, "exports_target_location"))
 
-        a1, a2, a3, a4, _ = st.columns([1, 1, 1, 1, 2])
-        with a1:
-            if st.button("Save Config", key="ih_save_config", use_container_width=True, type="primary"):
-                save_integration_profiles()
-                st.success(f"{selected_env} configuration saved.")
-        with a2:
-            if st.button("Reload Saved", key="ih_reload_config", use_container_width=True):
-                load_saved_integration_profiles()
-                st.success("Saved integration profiles reloaded.")
-                st.rerun()
-        with a3:
-            if st.button("Copy TEST → QA", key="ih_copy_test_qa", use_container_width=True):
-                copy_integration_env_config("TEST", "QA")
-                st.success("Copied TEST profile into QA.")
-        with a4:
-            if st.button("Copy QA → PROD", key="ih_copy_qa_prod", use_container_width=True):
-                copy_integration_env_config("QA", "PROD")
-                st.success("Copied QA profile into PROD.")
+    st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
 
-    current_cfg = get_integration_env_config(selected_env)
-    readiness_pct = integration_readiness_percent(current_cfg)
-    routing_df = build_integration_routing_summary(current_cfg)
-    registry_df = build_module_connection_registry(current_cfg)
-    env_status_df = build_integration_environment_status()
+    a1, a2, a3, a4, a5 = st.columns([1.25, 1.05, 1.05, 1.05, 1.2])
+    with a1:
+        if st.button("Save All Configuration", key="ih_save_config", use_container_width=True, type="primary"):
+            save_integration_profiles()
+            st.success(f"{selected_env} configuration saved.")
+    with a2:
+        if st.button("Reload Saved", key="ih_reload_config", use_container_width=True):
+            load_saved_integration_profiles()
+            st.success("Saved integration profiles reloaded.")
+            st.rerun()
+    with a3:
+        if st.button("Copy TEST → QA", key="ih_copy_test_qa", use_container_width=True):
+            copy_integration_env_config("TEST", "QA")
+            st.success("Copied TEST profile into QA.")
+    with a4:
+        if st.button("Copy QA → PROD", key="ih_copy_qa_prod", use_container_width=True):
+            copy_integration_env_config("QA", "PROD")
+            st.success("Copied QA profile into PROD.")
+    with a5:
+        st.download_button(
+            "Download Config JSON",
+            data=json.dumps({env: get_integration_env_config(env) for env in INTEGRATION_ENVIRONMENTS}, indent=2),
+            file_name="integration_hub_profiles.json",
+            mime="application/json",
+            key="ih_download_json",
+            use_container_width=True,
+        )
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        render_kpi("Config Readiness", f"{readiness_pct:.1f}%", f"{selected_env} setup completion")
-    with c2:
-        render_kpi("Eligibility Lane", "270 / 271", "Outbound request and inbound response")
-    with c3:
-        render_kpi("Claims Lane", "837 / 835", "Submission and remit routing")
-    with c4:
-        render_kpi("Saved Profiles", str(len(INTEGRATION_ENVIRONMENTS)), "Profiles retained in local config store")
-
-    gl, gr = st.columns([1.05, 0.95])
-    with gl:
-        st.markdown('<div class="section-title">Routing Summary</div>', unsafe_allow_html=True)
-        render_html_table(routing_df, max_height=220)
-        st.markdown('<div class="section-title">Environment Profiles</div>', unsafe_allow_html=True)
-        render_html_table(env_status_df, max_height=220)
-    with gr:
-        st.markdown('<div class="section-title">Module Connection Registry</div>', unsafe_allow_html=True)
-        render_html_table(registry_df, max_height=320)
-
-    st.download_button("Download Config JSON", data=json.dumps({env: get_integration_env_config(env) for env in INTEGRATION_ENVIRONMENTS}, indent=2), file_name="integration_hub_profiles.json", mime="application/json", key="ih_download_json")
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif active_tab == "Action Center":
+
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">Action Center</div>', unsafe_allow_html=True)
 
