@@ -1,0 +1,72 @@
+{
+  "users": [
+    {
+      "user_id": "admin@tchealth.org",
+      "full_name": "System Admin",
+      "email": "admin@tchealth.org",
+      "department": "RCM",
+      "role": "Admin",
+      "active": true,
+      "invite_status": "accepted",
+      "created_at": "2026-01-01 08:00:00",
+      "created_by": "System",
+      "updated_at": "2026-04-29 16:12:03",
+      "updated_by": "admin@tchealth.org",
+      "last_login": "2026-04-29 16:12:03",
+      "overrides": {
+        "extra_tabs": [],
+        "removed_tabs": [],
+        "extra_secondary_tabs": [],
+        "removed_secondary_tabs": [],
+        "can_export_override": false,
+        "can_manage_integration_override": false,
+        "can_save_config_override": false,
+        "phi_permissions": {
+          "can_view_phi": true,
+          "can_export_phi": true,
+          "can_view_patient_name": true,
+          "can_view_visit_id": true,
+          "can_view_mrn": true,
+          "can_view_dob": true
+        }
+      },
+      "username": "admin",
+      "password_hash": "3eb3fe66b31e3b4d10fa70b5cad49c7112294af6ae4e476a1c405155d45aa121",
+      "temp_password_required": false
+    },
+    {
+      "user_id": "manager@tchealth.org",
+      "full_name": "RCM Manager",
+      "email": "manager@tchealth.org",
+      "department": "RCM",
+      "role": "RCM Manager",
+      "active": true,
+      "invite_status": "accepted",
+      "created_at": "2026-01-01 08:00:00",
+      "created_by": "System",
+      "updated_at": "2026-01-01 08:00:00",
+      "updated_by": "System",
+      "last_login": "",
+      "overrides": {
+        "extra_tabs": [],
+        "removed_tabs": [],
+        "extra_secondary_tabs": [],
+        "removed_secondary_tabs": [],
+        "can_export_override": null,
+        "can_manage_integration_override": null,
+        "can_save_config_override": null,
+        "phi_permissions": {
+          "can_view_phi": false,
+          "can_export_phi": false,
+          "can_view_patient_name": false,
+          "can_view_visit_id": false,
+          "can_view_mrn": false,
+          "can_view_dob": false
+        }
+      },
+      "username": "manager",
+      "password_hash": "b9a9c0814e9d1a10eff04665d00546f83e2514499c7a43b5cc59d663878291f7",
+      "temp_password_required": false
+    }
+  ]
+}
