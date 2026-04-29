@@ -7,6 +7,23 @@ import html
 from urllib.parse import quote
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
+from roles_access import ROLES, ACCESS_MATRIX, get_allowed_tabs, can_export, can_manage_integration, can_save_config
+from users_auth import init_auth_state, authenticate_user, login_user, logout_user
+from user_management import (
+    list_users,
+    add_user,
+    delete_user,
+    update_user_role,
+    set_user_active,
+    set_invite_status,
+    update_user_password,
+    update_user_overrides,
+    update_user_phi_permissions,
+    resolve_user_access,
+    get_user_by_email,
+    DEFAULT_TEMP_PASSWORD,
+)
+from audit_logger import log_event
 
 import pandas as pd
 import plotly.express as px
@@ -28,12 +45,25 @@ APP_SUBTITLE = (
     "Prevent denials, recover revenue, reduce DNFB, and drive payer accountability "
     "from one workspace."
 )
+
+# Environment / onboarding settings
+APP_ENVIRONMENT = "LOCAL TEST"
+APP_LOGIN_URL = "http://localhost:8501"
 TUBA_CITY_LOGO_BASE64 = "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"
 
 PRIMARY_TABS = ["Executive", "Claims", "Assurance", "DNFB Executive", "Recoverable", "Prior Auths", "Denials", "Integration Hub"]
 SECONDARY_TABS = ["Action Center", "Payer Focus", "Appeals", "Exports"]
 MAX_FILES = 25
 EXCLUDED_CARC_CODES = {"1","2","3","45","85","94","108","131","137","143","144","161","187","223","246","253","P12"}
+
+# =========================================================
+# ROLE ACCESS (PHASE 2)
+# =========================================================
+current_role = "Executive Viewer"
+allowed_tabs = []
+visible_primary_tabs = []
+visible_secondary_tabs = []
+
 
 # =========================================================
 # OPTIONAL PARSER IMPORTS
@@ -254,6 +284,34 @@ st.markdown(
         background: rgba(255,255,255,0.11) !important;
         border-color: rgba(255,255,255,0.12) !important;
         color: #ffffff !important;
+    }
+
+    /* Role dropdown styling to match dark sidebar */
+    section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+        min-height: 44px !important;
+        border-radius: 12px !important;
+        background: rgba(255,255,255,0.06) !important;
+        border: 1px solid rgba(255,255,255,0.10) !important;
+        box-shadow: none !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-baseweb="select"] span {
+        color: #eaf1ff !important;
+        font-weight: 700 !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-baseweb="select"] svg {
+        fill: #eaf1ff !important;
+        color: #eaf1ff !important;
+    }
+
+    section[data-testid="stSidebar"] [data-baseweb="select"] input {
+        color: #eaf1ff !important;
+    }
+
+    section[data-testid="stSidebar"] label {
+        color: #eaf1ff !important;
+        font-weight: 700 !important;
     }
 
     .top-utility {
@@ -515,6 +573,39 @@ st.markdown(
         background: var(--primary) !important;
         border-color: var(--primary) !important;
         color: #ffffff !important;
+    }
+    div[data-testid="stFormSubmitButton"] > button {
+        background: var(--primary) !important;
+        border-color: var(--primary) !important;
+        color: #ffffff !important;
+    }
+    div[data-testid="stFormSubmitButton"] > button:hover {
+        background: var(--primary-2) !important;
+        border-color: var(--primary-2) !important;
+        color: #ffffff !important;
+    }
+    details[data-testid="stExpander"] {
+        border: none !important;
+        background: transparent !important;
+    }
+    details[data-testid="stExpander"] summary {
+        background: var(--primary) !important;
+        color: #ffffff !important;
+        border: 1px solid var(--primary) !important;
+        border-radius: 12px !important;
+        min-height: 42px !important;
+        padding: 0 14px !important;
+        font-weight: 800 !important;
+        box-shadow: none !important;
+    }
+    details[data-testid="stExpander"] summary:hover {
+        background: var(--primary-2) !important;
+        border-color: var(--primary-2) !important;
+        color: #ffffff !important;
+    }
+    details[data-testid="stExpander"] summary p {
+        color: #ffffff !important;
+        font-weight: 800 !important;
     }
 
     .stTextInput input, .stTextArea textarea, .stSelectbox [data-baseweb="select"] > div {
@@ -2681,6 +2772,294 @@ def clear_all() -> None:
 init_state()
 load_saved_integration_profiles()
 
+init_auth_state()
+if "show_add_user_form" not in st.session_state:
+    st.session_state["show_add_user_form"] = False
+current_role = st.session_state.get("user_role", "Executive Viewer")
+allowed_tabs = get_allowed_tabs(current_role)
+visible_primary_tabs = [tab for tab in PRIMARY_TABS if tab in allowed_tabs]
+visible_secondary_tabs = list(SECONDARY_TABS)
+if current_role == "Admin" and "User Management" not in visible_secondary_tabs:
+    visible_secondary_tabs.append("User Management")
+
+if not st.session_state.get("logged_in", False):
+    st.markdown(
+        """
+        <style>
+        .login-page-wrap {
+            max-width: 1180px;
+            margin: 10px auto 0 auto;
+        }
+        .login-side {
+            background: linear-gradient(180deg, #06122e 0%, #030b20 100%);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 22px;
+            box-shadow: 0 8px 24px rgba(15, 35, 69, 0.10);
+            padding: 18px 16px;
+            min-height: 620px;
+        }
+        .login-side-divider {
+            border-top: 1px solid rgba(255,255,255,0.08);
+            margin: 14px 0;
+        }
+        .login-side-label {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(232,238,251,0.56);
+            margin-bottom: 10px;
+        }
+        .login-side-card {
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 14px;
+            background: rgba(255,255,255,0.02);
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .login-side-card-title {
+            font-size: 14px;
+            font-weight: 800;
+            color: #ffffff;
+            margin-bottom: 4px;
+        }
+        .login-side-card-sub {
+            font-size: 12px;
+            line-height: 1.45;
+            color: rgba(232,238,251,0.76);
+        }
+        .login-form-title {
+            color: var(--text);
+            font-size: 18px;
+            font-weight: 800;
+            margin-bottom: 4px;
+        }
+        .login-form-sub {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 14px;
+        }
+        div[data-testid="stForm"] {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+        }
+        div[data-testid="stForm"] [data-testid="stFormSubmitButton"] > button {
+            height: 44px !important;
+            border-radius: 12px !important;
+            border: 1px solid var(--primary) !important;
+            background: var(--primary) !important;
+            color: #ffffff !important;
+            font-weight: 800 !important;
+            box-shadow: none !important;
+        }
+        div[data-testid="stForm"] [data-testid="stFormSubmitButton"] > button:hover {
+            background: var(--primary-2) !important;
+            border-color: var(--primary-2) !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="login-page-wrap">', unsafe_allow_html=True)
+    left_col, right_col = st.columns([1.05, 4.95], gap="medium")
+
+    with left_col:
+        st.markdown(
+            f"""<div class="login-side">
+<div class="sidebar-brand" style="padding: 4px 4px 16px 4px; margin-bottom: 0;">
+    <div class="sidebar-brand-box">
+        <img src="data:image/png;base64,{TUBA_CITY_LOGO_BASE64}" alt="Tuba City logo" />
+    </div>
+    <div>
+        <div class="sidebar-brand-title">Tuba City Regional Health Care</div>
+        <div class="sidebar-brand-sub">Revenue integrity platform</div>
+    </div>
+</div>
+
+<div class="login-side-divider"></div>
+
+<div class="login-side-label">Secure Access</div>
+
+<div class="login-side-card">
+    <div class="login-side-card-title">Tuba Email Sign-In</div>
+    <div class="login-side-card-sub">
+        Sign in with your assigned Tuba account to access a secure, role-based workspace.
+    </div>
+</div>
+
+<div class="login-side-card">
+    <div class="login-side-card-title">Revenue Integrity Focus</div>
+    <div class="login-side-card-sub">
+        This platform helps teams monitor denials, recover revenue, reduce DNFB, and improve operational visibility.
+    </div>
+</div>
+
+<div class="login-side-card">
+    <div class="login-side-card-title">Built for Operations</div>
+    <div class="login-side-card-sub">
+        Executives, managers, and analysts can work from the same application with the views appropriate to their role.
+    </div>
+</div>
+</div>""",
+            unsafe_allow_html=True,
+        )
+
+    with right_col:
+        st.markdown(
+            f"""
+            <div class="hero-shell">
+                <div class="hero-row">
+                    <div class="hero-left">
+                        <div class="brand-inline">
+                            <div class="brand-inline-box">
+                                <img src="data:image/png;base64,{TUBA_CITY_LOGO_BASE64}" alt="Tuba City logo" />
+                            </div>
+                            <div class="brand-inline-text">
+                                <div class="eyebrow">{APP_VENDOR}</div>
+                                <div class="workspace-sub">Revenue Integrity &amp; Denials Prevention Platform</div>
+                            </div>
+                        </div>
+                        <div class="page-title" style="font-size:32px;margin-bottom:8px;">Secure Login</div>
+                        <div class="page-subtitle">Sign in to access your assigned Tuba workspace with the same role-based experience and design language as the main application.</div>
+                    </div>
+                    <div class="mini-chip-row">
+                        <div class="mini-chip">Secure Intake</div>
+                        <div class="mini-chip">Executive Analytics</div>
+                        <div class="mini-chip">Workflow Ready</div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        form_left, form_mid, form_right = st.columns([1.15, 1.65, 1.15])
+        with form_mid:
+            st.markdown('<div class="login-form-title">Welcome back</div>', unsafe_allow_html=True)
+            st.markdown('<div class="login-form-sub">Enter your Tuba email or username and password to continue.</div>', unsafe_allow_html=True)
+
+            with st.container(border=True):
+                with st.form("login_form", clear_on_submit=False):
+                    login_id = st.text_input("Tuba Email or Username")
+                    login_password = st.text_input("Password", type="password")
+                    submitted = st.form_submit_button("Sign In", use_container_width=True, type="primary")
+
+                if submitted:
+                    user = authenticate_user(login_id, login_password)
+                    if user:
+                        login_user(user)
+                        st.rerun()
+                    else:
+                        st.error("Invalid username/email or password.")
+
+            st.caption("Test accounts: admin@tchealth.org, manager@tchealth.org, claims@tchealth.org")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
+
+
+if st.session_state.get("logged_in", False) and st.session_state.get("force_password_reset", False):
+    st.markdown(
+        """
+        <style>
+        .reset-wrap { max-width: 900px; margin: 12px auto 0 auto; }
+        .reset-card {
+            max-width: 560px;
+            margin: 18px auto 0 auto;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: var(--shadow-soft);
+            padding: 20px 20px 16px 20px;
+        }
+        .reset-title {
+            color: var(--text);
+            font-size: 28px;
+            font-weight: 900;
+            margin-bottom: 8px;
+        }
+        .reset-sub {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 14px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="reset-wrap">', unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="hero-shell">
+            <div class="hero-row">
+                <div class="hero-left">
+                    <div class="brand-inline">
+                        <div class="brand-inline-box">
+                            <img src="data:image/png;base64,{TUBA_CITY_LOGO_BASE64}" alt="Tuba City logo" />
+                        </div>
+                        <div class="brand-inline-text">
+                            <div class="eyebrow">{APP_VENDOR}</div>
+                            <div class="workspace-sub">First-time password setup required</div>
+                        </div>
+                    </div>
+                    <div class="page-title" style="font-size:32px;margin-bottom:8px;">Change Temporary Password</div>
+                    <div class="page-subtitle">For security, new users must replace the temporary password before entering the application.</div>
+                </div>
+                <div class="mini-chip-row">
+                    <div class="mini-chip">Secure Access</div>
+                    <div class="mini-chip">First Login</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="reset-card">', unsafe_allow_html=True)
+    st.markdown(f'<div class="reset-title">Welcome, {st.session_state.get("user_name", "")}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="reset-sub">Account: {st.session_state.get("pending_password_reset_email", "")}<br>Temporary password: <b>{DEFAULT_TEMP_PASSWORD}</b></div>', unsafe_allow_html=True)
+
+    with st.form("force_password_reset_form", clear_on_submit=False):
+        new_password = st.text_input("New Password", type="password")
+        confirm_password = st.text_input("Confirm New Password", type="password")
+        change_password_submit = st.form_submit_button("Save New Password", use_container_width=True, type="primary")
+
+    if change_password_submit:
+        if len((new_password or "").strip()) < 8:
+            st.error("New password must be at least 8 characters.")
+        elif new_password != confirm_password:
+            st.error("Passwords do not match.")
+        else:
+            try:
+                update_user_password(
+                    st.session_state.get("pending_password_reset_email", ""),
+                    new_password,
+                    st.session_state.get("pending_password_reset_email", ""),
+                )
+                log_event(
+                    action="password_reset_first_login",
+                    status="success",
+                    user_email=st.session_state.get("user_email", ""),
+                    user_name=st.session_state.get("user_name", ""),
+                    role=st.session_state.get("user_role", ""),
+                    module="Authentication",
+                    details="User changed temporary password on first login.",
+                )
+                st.session_state["force_password_reset"] = False
+                st.session_state["pending_password_reset_email"] = ""
+                st.success("Password updated successfully.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Could not update password: {exc}")
+
+    st.markdown('</div></div>', unsafe_allow_html=True)
+    st.stop()
+
+
 
 st.markdown(
     """
@@ -2999,6 +3378,24 @@ def download_tab_excel(label: str, sheets: Dict[str, pd.DataFrame], file_name: s
         key=key,
     )
 
+
+def build_user_directory_df(users: List[Dict[str, Any]]) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+    for user in users:
+        rows.append(
+            {
+                "Full Name": user.get("full_name", ""),
+                "Email": user.get("email", ""),
+                "Department": user.get("department", ""),
+                "Role": user.get("role", ""),
+                "Active": "Yes" if bool(user.get("active", False)) else "No",
+                "Invite Status": user.get("invite_status", ""),
+                "Last Login": user.get("last_login", "") or "-",
+                "Updated At": user.get("updated_at", "") or "-",
+            }
+        )
+    return pd.DataFrame(rows)
+
 # =========================================================
 # MAIN LAYOUT
 # =========================================================
@@ -3015,9 +3412,16 @@ NAV_ICONS = {
     "Appeals": "↗",
     "DNFB Executive": "▣",
     "Exports": "⇩",
+    "User Management": "☷",
 }
 
 with st.sidebar:
+    if st.session_state.active_tab not in visible_primary_tabs + visible_secondary_tabs:
+        if visible_primary_tabs:
+            st.session_state.active_tab = visible_primary_tabs[0]
+        elif visible_secondary_tabs:
+            st.session_state.active_tab = visible_secondary_tabs[0]
+
     st.markdown(
         f"""
         <div class="sidebar-brand">
@@ -3031,8 +3435,22 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    st.markdown(
+        f"""
+        <div style="padding:10px 10px 14px 10px; margin-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.08);">
+            <div style="font-size:12px; color:rgba(232,238,251,0.72); margin-bottom:4px;">Signed in as</div>
+            <div style="font-size:14px; font-weight:800; color:#ffffff;">{st.session_state.get("user_name", "")}</div>
+            <div style="font-size:12px; color:rgba(232,238,251,0.72); margin-top:2px;">{st.session_state.get("user_role", "")}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("Log Out", key="logout_btn", use_container_width=True):
+        logout_user()
+        st.rerun()
+
     st.markdown('<div class="sidebar-group">Core Modules</div>', unsafe_allow_html=True)
-    for tab in PRIMARY_TABS:
+    for tab in visible_primary_tabs:
         btn_type = "primary" if st.session_state.active_tab == tab else "secondary"
         label = f"{NAV_ICONS.get(tab, '•')}  {tab}"
         if st.button(label, key=f"p_{tab}", use_container_width=True, type=btn_type):
@@ -3040,7 +3458,7 @@ with st.sidebar:
             st.rerun()
 
     st.markdown('<div class="sidebar-group">Operational Views</div>', unsafe_allow_html=True)
-    for tab in SECONDARY_TABS:
+    for tab in visible_secondary_tabs:
         btn_type = "primary" if st.session_state.active_tab == tab else "secondary"
         label = f"{NAV_ICONS.get(tab, '•')}  {tab}"
         if st.button(label, key=f"s_{tab}", use_container_width=True, type=btn_type):
@@ -3080,94 +3498,118 @@ st.markdown(
 # =========================================================
 # ACTION BAR
 # =========================================================
-st.markdown(
-    """
-    <div class="upload-shell">
-        <div class="upload-head">
-            <div>
-                <div class="upload-title">Upload & Processing</div>
-                <div class="upload-copy">Upload EDI, DNFB, and denial files to refresh the dashboard.</div>
+active_tab_for_layout = st.session_state.get("active_tab", "Executive")
+
+if active_tab_for_layout != "User Management":
+    st.markdown(
+        """
+        <div class="upload-shell">
+            <div class="upload-head">
+                <div>
+                    <div class="upload-title">Upload & Processing</div>
+                    <div class="upload-copy">Upload EDI, DNFB, and denial files to refresh the dashboard.</div>
+                </div>
             </div>
-        </div>
-    """,
-    unsafe_allow_html=True,
-)
-with st.expander("Open uploader", expanded=st.session_state.upload_panel_expanded):
-    up1, up2 = st.columns([3.4, 1.2])
-    with up1:
-        uploaded_files = st.file_uploader(
-            "Upload 835 / 837P / 837I, DNFB, or Denials files",
-            type=["txt", "edi", "835", "837", "xlsx", "xls", "csv"],
-            accept_multiple_files=True,
-            label_visibility="collapsed",
-            help="Drop EDI files, DNFB files, or denial files here in Excel or CSV format.",
-        )
-    with up2:
-        process_clicked = st.button("Process Files", use_container_width=True, type="primary")
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.expander("Open uploader", expanded=st.session_state.upload_panel_expanded):
+        up1, up2 = st.columns([3.4, 1.2])
+        with up1:
+            uploaded_files = st.file_uploader(
+                "Upload 835 / 837P / 837I, DNFB, or Denials files",
+                type=["txt", "edi", "835", "837", "xlsx", "xls", "csv"],
+                accept_multiple_files=True,
+                label_visibility="collapsed",
+                help="Drop EDI files, DNFB files, or denial files here in Excel or CSV format.",
+            )
+        with up2:
+            process_clicked = st.button("Process Files", use_container_width=True, type="primary")
 
-    if uploaded_files and len(uploaded_files) > MAX_FILES:
-        st.error(f"Maximum allowed files: {MAX_FILES}")
-        uploaded_files = uploaded_files[:MAX_FILES]
+        if uploaded_files and len(uploaded_files) > MAX_FILES:
+            st.error(f"Maximum allowed files: {MAX_FILES}")
+            uploaded_files = uploaded_files[:MAX_FILES]
 
-    if uploaded_files:
-        names = [f.name for f in uploaded_files[:4]]
-        more = "" if len(uploaded_files) <= 4 else f" +{len(uploaded_files)-4} more"
-        st.caption(f"Upload {len(uploaded_files)} file(s): {', '.join(names)}{more}")
+        if uploaded_files:
+            names = [f.name for f in uploaded_files[:4]]
+            more = "" if len(uploaded_files) <= 4 else f" +{len(uploaded_files)-4} more"
+            st.caption(f"Upload {len(uploaded_files)} file(s): {', '.join(names)}{more}")
 
-    if process_clicked:
-        if not uploaded_files:
-            st.warning("Please upload at least one file.")
-        else:
-            try:
-                edi_files = [f for f in uploaded_files if not f.name.lower().endswith((".xlsx", ".xls", ".csv"))]
-                tabular_files = [f for f in uploaded_files if f.name.lower().endswith((".xlsx", ".xls", ".csv"))]
+        if process_clicked:
+            if not uploaded_files:
+                st.warning("Please upload at least one file.")
+            else:
+                try:
+                    edi_files = []
+                    dnfb_files = []
+                    denial_files = []
+                    results: List[Dict[str, Any]] = []
 
-                if edi_files:
-                    parsed_results, claims_df, service_df, summary_df, exec_df, parser_mode = process_files(edi_files)
-                else:
-                    parsed_results, claims_df, service_df, summary_df, exec_df, parser_mode = [], pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), "No EDI Uploaded"
+                    for uf in uploaded_files:
+                        raw = uf.read()
+                        ext = uf.name.lower().split(".")[-1]
 
-                dnfb_source_files = [f for f in tabular_files if "dnfb" in f.name.lower()]
-                denial_source_files = [f for f in tabular_files if "denial" in f.name.lower()]
-                other_excel_files = [f for f in tabular_files if f not in dnfb_source_files and f not in denial_source_files]
+                        if ext in {"xlsx", "xls"} or "dnfb" in uf.name.lower():
+                            dnfb_files.append((uf.name, raw))
+                            continue
+                        if ext == "csv" or "denial" in uf.name.lower():
+                            denial_files.append((uf.name, raw))
+                            continue
 
-                dnfb_frames = [read_dnfb_excel(f) for f in dnfb_source_files]
-                dnfb_frames += [read_dnfb_excel(f) for f in other_excel_files]
-                dnfb_frames = [df for df in dnfb_frames if not df.empty]
-                dnfb_df = pd.concat(dnfb_frames, ignore_index=True) if dnfb_frames else pd.DataFrame()
+                        ftype = detect_file_type(uf.name, raw)
+                        if ftype == "835":
+                            parsed = parse_835(raw, uf.name) if PARSER_V5_AVAILABLE else fallback_parse_835(raw, uf.name)
+                        elif ftype in {"837P", "837I"}:
+                            parsed = (parse_837p(raw, uf.name) if ftype == "837P" else parse_837i(raw, uf.name)) if PARSER_V5_AVAILABLE else fallback_parse_837(raw, uf.name, ftype)
+                        else:
+                            st.warning(f"Skipping unsupported file: {uf.name}")
+                            continue
 
-                denial_raw_frames = [read_denials_excel(f) for f in denial_source_files]
-                denial_raw_frames = [df for df in denial_raw_frames if not df.empty]
-                denial_df = pd.concat([df[~df["excluded_carc_flag"]].copy() for df in denial_raw_frames], ignore_index=True) if denial_raw_frames else pd.DataFrame()
-                denial_df_raw_excluded = pd.concat([df[df["excluded_carc_flag"]].copy() for df in denial_raw_frames], ignore_index=True) if denial_raw_frames else pd.DataFrame()
+                        parsed["file_name"] = uf.name
+                        parsed["file_type"] = ftype
+                        parsed["processed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        parsed["parser_mode"] = "v5" if PARSER_V5_AVAILABLE else "fallback"
+                        results.append(parsed)
+                        edi_files.append((uf.name, raw))
 
-                st.session_state.parsed_results = parsed_results
-                st.session_state.claims_df = claims_df
-                st.session_state.service_df = service_df
-                st.session_state.summary_df = summary_df
-                st.session_state.exec_df = exec_df
-                st.session_state.dnfb_df = dnfb_df
-                st.session_state.denial_df = denial_df
-                st.session_state.denial_df_raw_excluded = denial_df_raw_excluded
-                st.session_state.parser_mode = parser_mode
-                st.session_state.last_refresh = datetime.now()
-                st.session_state.upload_panel_expanded = False
+                    claims_df, service_df, summary_df, exec_df = flatten_if_needed(results)
+                    claims_df = enrich_claims(normalize_dates(claims_df))
+                    service_df = normalize_dates(service_df)
+                    summary_df = normalize_dates(summary_df)
+                    exec_df = normalize_dates(exec_df)
 
-                source_parts = []
-                if edi_files:
-                    source_parts.append("EDI Files")
-                if dnfb_source_files:
-                    source_parts.append("DNFB File")
-                if denial_source_files:
-                    source_parts.append("Denials File")
-                st.session_state.source_mode = " + ".join(source_parts) if source_parts else "Uploaded Files"
+                    if dnfb_files:
+                        dnfb_name, dnfb_raw = dnfb_files[0]
+                        dnfb_df = parse_dnfb_any(dnfb_raw, dnfb_name)
+                        dnfb_df = enrich_dnfb(normalize_dates(dnfb_df))
+                    else:
+                        dnfb_df = pd.DataFrame()
 
-                st.success(f"Processed {len(uploaded_files)} file(s) successfully. You can reopen this section anytime.")
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Processing failed: {exc}")
+                    if denial_files:
+                        denial_name, denial_raw = denial_files[0]
+                        denial_df = parse_denials_any(denial_raw, denial_name)
+                        denial_df = enrich_denials(normalize_dates(denial_df))
+                    else:
+                        denial_df = pd.DataFrame()
 
-st.markdown('</div>', unsafe_allow_html=True)
+                    st.session_state.parsed_results = results
+                    st.session_state.claims_df = claims_df
+                    st.session_state.service_df = service_df
+                    st.session_state.summary_df = summary_df
+                    st.session_state.exec_df = exec_df
+                    st.session_state.dnfb_df = dnfb_df
+                    st.session_state.denial_df = denial_df
+                    st.session_state.denial_df_raw_excluded = pd.DataFrame()
+                    st.session_state.parser_mode = "V5" if PARSER_V5_AVAILABLE else "Fallback"
+                    st.session_state.last_refresh = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    st.session_state.source_mode = "Data Loaded"
+                    st.session_state.upload_panel_expanded = False
+                    st.success("Files processed successfully.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Processing failed: {exc}")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
 # CURRENT DATA
@@ -4380,6 +4822,301 @@ elif active_tab == "DNFB Executive":
             "dnfb_executive.xlsx",
             "dl_dnfb_excel",
         )
+
+
+
+elif active_tab == "User Management":
+    if current_role != "Admin":
+        st.warning("Only Admin can access User Management.")
+    else:
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">User Management</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Manage users, temporary-password onboarding, account status, access overrides, and PHI visibility controls without exposing PHI in this admin workspace.</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        users = list_users()
+        user_dir_df = build_user_directory_df(users)
+
+        add_button_label = "Hide Add User" if st.session_state.get("show_add_user_form", False) else "Add User"
+        if st.button(add_button_label, key="toggle_add_user_form", type="primary"):
+            st.session_state["show_add_user_form"] = not st.session_state.get("show_add_user_form", False)
+            st.rerun()
+
+        if st.session_state.get("show_add_user_form", False):
+            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+            add_left, add_right = st.columns([1.35, 1.0], gap="large")
+            with add_left:
+                st.markdown('<div class="panel">', unsafe_allow_html=True)
+                st.markdown('<div class="section-title">Add User</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-sub" style="margin-bottom:10px;">Create a new user with a temporary password. The user will be forced to change it on first login.</div>', unsafe_allow_html=True)
+                with st.form("add_user_form", clear_on_submit=True):
+                    new_full_name = st.text_input("Full Name")
+                    new_email = st.text_input("Tuba Email")
+                    new_department = st.text_input("Department")
+                    new_role = st.selectbox("Role", ROLES, index=ROLES.index("Executive Viewer") if "Executive Viewer" in ROLES else 0)
+                    add_submit = st.form_submit_button("Add User", use_container_width=True, type="primary")
+                if add_submit:
+                    try:
+                        created = add_user(
+                            full_name=new_full_name,
+                            email=new_email,
+                            role=new_role,
+                            created_by=st.session_state.get("user_email", "admin"),
+                            department=new_department,
+                        )
+                        log_event(
+                            action="create_user",
+                            status="success",
+                            user_email=st.session_state.get("user_email", ""),
+                            user_name=st.session_state.get("user_name", ""),
+                            role=st.session_state.get("user_role", ""),
+                            module="User Management",
+                            details=f"Created user {created.get('email', '')} with temporary password.",
+                        )
+                        st.success(f"User created: {created.get('email', '')}. Temporary password: {DEFAULT_TEMP_PASSWORD}")
+                        st.session_state["show_add_user_form"] = False
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Could not create user: {exc}")
+                st.markdown('</div>', unsafe_allow_html=True)
+            with add_right:
+                st.markdown(
+                    f"""
+                    <div style="background:#f8fbff;border:1px solid #dbe4f1;border-radius:14px;padding:16px;">
+                        <div style="font-size:15px;font-weight:800;color:#0f2345;margin-bottom:8px;">First Login Process</div>
+                        <div style="font-size:13px;color:#5f7393;line-height:1.7;">
+                            • New users log in with temporary password <b>{DEFAULT_TEMP_PASSWORD}</b><br>
+                            • On first login they must set a new password<br>
+                            • Passwords are stored as hashed values for this prototype<br>
+                            • Environment: <b>{APP_ENVIRONMENT}</b><br>
+                            • Login URL: <b>{APP_LOGIN_URL}</b>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">User Directory</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Active and invited users across the platform. Use Select User below to manage role, permissions, password status, or delete a user.</div>', unsafe_allow_html=True)
+        if user_dir_df.empty:
+            st.info("No users found.")
+        else:
+            st.dataframe(user_dir_df, use_container_width=True, hide_index=True, height=300)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+
+        manage_left, manage_right = st.columns([1.0, 1.35], gap="large")
+
+        selectable_users = [""] + [u.get("email", "") for u in users]
+        if st.session_state.get("um_selected_user", "") not in selectable_users:
+            st.session_state["um_selected_user"] = ""
+        selected_email = ""
+        if selectable_users:
+            selected_email = manage_left.selectbox("Select User", selectable_users, index=selectable_users.index(st.session_state.get("um_selected_user", "")), key="um_selected_user")
+
+        selected_user = get_user_by_email(selected_email) if selected_email else None
+
+        with manage_left:
+            st.markdown('<div class="panel">', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Account Controls</div>', unsafe_allow_html=True)
+
+            if not selected_user:
+                st.info("Select a user to manage role, account status, invite status, and deletion.")
+            else:
+                st.markdown(
+                    f"""
+                    <div style="background:#f8fbff;border:1px solid #dbe4f1;border-radius:14px;padding:14px 14px 12px 14px;margin-bottom:12px;">
+                        <div style="font-size:16px;font-weight:800;color:#0f2345;margin-bottom:4px;">{selected_user.get("full_name", "")}</div>
+                        <div style="font-size:13px;color:#5f7393;line-height:1.5;">{selected_user.get("email", "")}</div>
+                        <div style="font-size:13px;color:#5f7393;line-height:1.5;">Department: {selected_user.get("department", "") or "-"}</div>
+                        <div style="font-size:13px;color:#5f7393;line-height:1.5;">Temporary password required: {"Yes" if selected_user.get("temp_password_required", False) else "No"}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                left_settings, right_settings = st.columns(2)
+                with st.form("user_account_controls"):
+                    with left_settings:
+                        selected_role = st.selectbox(
+                            "Assigned Role",
+                            ROLES,
+                            index=ROLES.index(selected_user.get("role", "Executive Viewer")) if selected_user.get("role", "Executive Viewer") in ROLES else 0,
+                        )
+                        invite_status = st.selectbox(
+                            "Invite Status",
+                            ["not_sent", "sent", "accepted", "expired"],
+                            index=["not_sent", "sent", "accepted", "expired"].index(selected_user.get("invite_status", "not_sent")),
+                        )
+                    with right_settings:
+                        is_active = st.checkbox("Active Account", value=bool(selected_user.get("active", False)))
+                    save_account = st.form_submit_button("Save Account Settings", use_container_width=True, type="primary")
+
+                if save_account:
+                    try:
+                        update_user_role(selected_user.get("email", ""), selected_role, st.session_state.get("user_email", "admin"))
+                        set_user_active(selected_user.get("email", ""), is_active, st.session_state.get("user_email", "admin"))
+                        set_invite_status(selected_user.get("email", ""), invite_status, st.session_state.get("user_email", "admin"))
+                        log_event(
+                            action="update_user_account",
+                            status="success",
+                            user_email=st.session_state.get("user_email", ""),
+                            user_name=st.session_state.get("user_name", ""),
+                            role=st.session_state.get("user_role", ""),
+                            module="User Management",
+                            details=f"Updated account settings for {selected_user.get('email', '')}.",
+                        )
+                        st.success("Account settings updated.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Could not update account settings: {exc}")
+
+                st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-sub" style="margin-top:0;margin-bottom:8px;"><b>Danger Zone</b></div>', unsafe_allow_html=True)
+                delete_confirm = st.checkbox("I understand this will permanently remove the selected user.", key="delete_user_confirm")
+                active_admin_count = sum(
+                    1
+                    for u in users
+                    if u.get("role", "") == "Admin" and bool(u.get("active", False))
+                )
+                deleting_self = selected_user.get("email", "") == st.session_state.get("user_email", "")
+                deleting_last_active_admin = (
+                    selected_user.get("role", "") == "Admin"
+                    and bool(selected_user.get("active", False))
+                    and active_admin_count <= 1
+                )
+                delete_disabled = (
+                    not delete_confirm
+                    or deleting_self
+                    or deleting_last_active_admin
+                )
+                if deleting_self:
+                    st.caption("You cannot delete the account currently signed in.")
+                elif deleting_last_active_admin:
+                    st.caption("At least one active Admin account must remain in the system.")
+                elif selected_user.get("role", "") == "Admin":
+                    st.caption("This Admin can be deleted because another active Admin still exists.")
+                if st.button("Delete User", use_container_width=True, disabled=delete_disabled, key="delete_user_btn", type="primary"):
+                    try:
+                        delete_user(selected_user.get("email", ""))
+                        log_event(
+                            action="delete_user",
+                            status="success",
+                            user_email=st.session_state.get("user_email", ""),
+                            user_name=st.session_state.get("user_name", ""),
+                            role=st.session_state.get("user_role", ""),
+                            module="User Management",
+                            details=f"Deleted user {selected_user.get('email', '')}.",
+                        )
+                        st.success("User deleted.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Could not delete user: {exc}")
+
+                resolved = resolve_user_access(selected_user.get("email", ""))
+                st.markdown('<div class="section-sub" style="margin-top:10px;margin-bottom:8px;"><b>Resolved Access Preview</b></div>', unsafe_allow_html=True)
+                preview_df = pd.DataFrame(
+                    [
+                        {"Access Area": "Primary Tabs", "Value": ", ".join(resolved.get("primary_tabs", [])) or "-"},
+                        {"Access Area": "Operational Views", "Value": ", ".join(resolved.get("secondary_tabs", [])) or "-"},
+                        {"Access Area": "Export Allowed", "Value": "Yes" if resolved.get("can_export", False) else "No"},
+                        {"Access Area": "Integration Manage", "Value": "Yes" if resolved.get("can_manage_integration", False) else "No"},
+                        {"Access Area": "Save Config", "Value": "Yes" if resolved.get("can_save_config", False) else "No"},
+                    ]
+                )
+                st.dataframe(preview_df, use_container_width=True, hide_index=True, height=215)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with manage_right:
+            st.markdown('<div class="panel">', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Permission Overrides & PHI Controls</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-sub">Grant additional access only where needed. Keep PHI hidden unless hospital-approved.</div>', unsafe_allow_html=True)
+
+            if not selected_user:
+                st.info("Select a user to manage overrides and PHI controls.")
+            else:
+                current_overrides = selected_user.get("overrides", {})
+                current_phi = current_overrides.get("phi_permissions", {})
+
+                with st.form("user_override_form"):
+                    st.markdown('<div style="font-size:13px;font-weight:800;color:#0f2345;margin-bottom:6px;">Access Overrides</div>', unsafe_allow_html=True)
+                    extra_tabs = st.multiselect("Extra Core Module Access", PRIMARY_TABS, default=current_overrides.get("extra_tabs", []))
+                    removed_tabs = st.multiselect("Removed Core Module Access", PRIMARY_TABS, default=current_overrides.get("removed_tabs", []))
+
+                    row_a, row_b = st.columns(2)
+                    with row_a:
+                        extra_secondary_tabs = st.multiselect("Extra Operational View Access", SECONDARY_TABS, default=current_overrides.get("extra_secondary_tabs", []))
+                    with row_b:
+                        removed_secondary_tabs = st.multiselect("Removed Operational View Access", SECONDARY_TABS, default=current_overrides.get("removed_secondary_tabs", []))
+
+                    t1, t2, t3 = st.columns(3)
+                    with t1:
+                        can_export_override = st.checkbox("Override Export Permission", value=bool(current_overrides.get("can_export_override", False)))
+                    with t2:
+                        can_manage_integration_override = st.checkbox("Override Integration Manage", value=bool(current_overrides.get("can_manage_integration_override", False)))
+                    with t3:
+                        can_save_config_override = st.checkbox("Override Save Config", value=bool(current_overrides.get("can_save_config_override", False)))
+
+                    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+                    st.markdown('<div style="font-size:13px;font-weight:800;color:#0f2345;margin-bottom:6px;">PHI Visibility Controls</div>', unsafe_allow_html=True)
+                    p1, p2, p3 = st.columns(3)
+                    with p1:
+                        can_view_phi = st.checkbox("Can View PHI", value=bool(current_phi.get("can_view_phi", False)))
+                        can_export_phi = st.checkbox("Can Export PHI", value=bool(current_phi.get("can_export_phi", False)))
+                    with p2:
+                        can_view_patient_name = st.checkbox("Patient Name", value=bool(current_phi.get("can_view_patient_name", False)))
+                        can_view_visit_id = st.checkbox("Visit ID", value=bool(current_phi.get("can_view_visit_id", False)))
+                    with p3:
+                        can_view_mrn = st.checkbox("MRN", value=bool(current_phi.get("can_view_mrn", False)))
+                        can_view_dob = st.checkbox("DOB", value=bool(current_phi.get("can_view_dob", False)))
+
+                    save_override = st.form_submit_button("Save Permission Overrides", use_container_width=True, type="primary")
+
+                if save_override:
+                    try:
+                        update_user_overrides(
+                            selected_user.get("email", ""),
+                            st.session_state.get("user_email", "admin"),
+                            extra_tabs=extra_tabs,
+                            removed_tabs=removed_tabs,
+                            extra_secondary_tabs=extra_secondary_tabs,
+                            removed_secondary_tabs=removed_secondary_tabs,
+                            can_export_override=can_export_override,
+                            can_manage_integration_override=can_manage_integration_override,
+                            can_save_config_override=can_save_config_override,
+                        )
+                        update_user_phi_permissions(
+                            selected_user.get("email", ""),
+                            st.session_state.get("user_email", "admin"),
+                            can_view_phi=can_view_phi,
+                            can_export_phi=can_export_phi,
+                            can_view_patient_name=can_view_patient_name,
+                            can_view_visit_id=can_view_visit_id,
+                            can_view_mrn=can_view_mrn,
+                            can_view_dob=can_view_dob,
+                        )
+                        log_event(
+                            action="update_user_permissions",
+                            status="success",
+                            user_email=st.session_state.get("user_email", ""),
+                            user_name=st.session_state.get("user_name", ""),
+                            role=st.session_state.get("user_role", ""),
+                            module="User Management",
+                            details=f"Updated permissions for {selected_user.get('email', '')}.",
+                        )
+                        st.success("Permissions updated.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Could not update permissions: {exc}")
+
+                resolved_after = resolve_user_access(selected_user.get("email", ""))
+                phi_rows = [{"PHI Permission": k, "Allowed": "Yes" if v else "No"} for k, v in resolved_after.get("phi_permissions", {}).items()]
+                st.dataframe(pd.DataFrame(phi_rows), use_container_width=True, hide_index=True, height=245)
+            st.markdown('</div>', unsafe_allow_html=True)
 
 elif active_tab == "Exports":
     excel_bytes = to_excel_bytes(
