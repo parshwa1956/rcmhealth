@@ -7,7 +7,8 @@ import html
 from urllib.parse import quote
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
-from roles_access import ROLES, ACCESS_MATRIX, get_allowed_tabs, can_export, can_manage_integration, can_save_config
+
+from roles_access import ROLES, ACCESS_MATRIX, get_allowed_tabs, get_allowed_secondary_tabs
 from users_auth import init_auth_state, authenticate_user, login_user, logout_user
 from user_management import (
     list_users,
@@ -46,7 +47,6 @@ APP_SUBTITLE = (
     "from one workspace."
 )
 
-# Environment / onboarding settings
 APP_ENVIRONMENT = "LOCAL TEST"
 APP_LOGIN_URL = "http://localhost:8501"
 TUBA_CITY_LOGO_BASE64 = "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"
@@ -55,15 +55,6 @@ PRIMARY_TABS = ["Executive", "Claims", "Assurance", "DNFB Executive", "Recoverab
 SECONDARY_TABS = ["Action Center", "Payer Focus", "Appeals", "Exports"]
 MAX_FILES = 25
 EXCLUDED_CARC_CODES = {"1","2","3","45","85","94","108","131","137","143","144","161","187","223","246","253","P12"}
-
-# =========================================================
-# ROLE ACCESS (PHASE 2)
-# =========================================================
-current_role = "Executive Viewer"
-allowed_tabs = []
-visible_primary_tabs = []
-visible_secondary_tabs = []
-
 
 # =========================================================
 # OPTIONAL PARSER IMPORTS
@@ -286,32 +277,44 @@ st.markdown(
         color: #ffffff !important;
     }
 
-    /* Role dropdown styling to match dark sidebar */
-    section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
-        min-height: 44px !important;
+    div[data-testid="stFormSubmitButton"] > button,
+    div[data-testid="stFormSubmitButton"] > button[kind],
+    div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] > button,
+    div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] > button[kind] {
+        height: 44px !important;
         border-radius: 12px !important;
-        background: rgba(255,255,255,0.06) !important;
-        border: 1px solid rgba(255,255,255,0.10) !important;
+        border: 1px solid var(--primary) !important;
+        background: var(--primary) !important;
+        color: #ffffff !important;
+        font-weight: 800 !important;
         box-shadow: none !important;
     }
-
-    section[data-testid="stSidebar"] div[data-baseweb="select"] span {
-        color: #eaf1ff !important;
-        font-weight: 700 !important;
+    div[data-testid="stFormSubmitButton"] > button:hover,
+    div[data-testid="stFormSubmitButton"] > button[kind]:hover,
+    div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] > button:hover,
+    div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] > button[kind]:hover {
+        background: var(--primary-2) !important;
+        border-color: var(--primary-2) !important;
+        color: #ffffff !important;
     }
 
-    section[data-testid="stSidebar"] div[data-baseweb="select"] svg {
-        fill: #eaf1ff !important;
-        color: #eaf1ff !important;
+    .main .stButton > button[kind="primary"],
+    .main div[data-testid="stFormSubmitButton"] > button,
+    .main div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] > button {
+        height: 44px !important;
+        border-radius: 12px !important;
+        border: 1px solid var(--primary) !important;
+        background: var(--primary) !important;
+        color: #ffffff !important;
+        font-weight: 800 !important;
+        box-shadow: none !important;
     }
-
-    section[data-testid="stSidebar"] [data-baseweb="select"] input {
-        color: #eaf1ff !important;
-    }
-
-    section[data-testid="stSidebar"] label {
-        color: #eaf1ff !important;
-        font-weight: 700 !important;
+    .main .stButton > button[kind="primary"]:hover,
+    .main div[data-testid="stFormSubmitButton"] > button:hover,
+    .main div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] > button:hover {
+        background: var(--primary-2) !important;
+        border-color: var(--primary-2) !important;
+        color: #ffffff !important;
     }
 
     .top-utility {
@@ -573,39 +576,6 @@ st.markdown(
         background: var(--primary) !important;
         border-color: var(--primary) !important;
         color: #ffffff !important;
-    }
-    div[data-testid="stFormSubmitButton"] > button {
-        background: var(--primary) !important;
-        border-color: var(--primary) !important;
-        color: #ffffff !important;
-    }
-    div[data-testid="stFormSubmitButton"] > button:hover {
-        background: var(--primary-2) !important;
-        border-color: var(--primary-2) !important;
-        color: #ffffff !important;
-    }
-    details[data-testid="stExpander"] {
-        border: none !important;
-        background: transparent !important;
-    }
-    details[data-testid="stExpander"] summary {
-        background: var(--primary) !important;
-        color: #ffffff !important;
-        border: 1px solid var(--primary) !important;
-        border-radius: 12px !important;
-        min-height: 42px !important;
-        padding: 0 14px !important;
-        font-weight: 800 !important;
-        box-shadow: none !important;
-    }
-    details[data-testid="stExpander"] summary:hover {
-        background: var(--primary-2) !important;
-        border-color: var(--primary-2) !important;
-        color: #ffffff !important;
-    }
-    details[data-testid="stExpander"] summary p {
-        color: #ffffff !important;
-        font-weight: 800 !important;
     }
 
     .stTextInput input, .stTextArea textarea, .stSelectbox [data-baseweb="select"] > div {
@@ -2775,12 +2745,16 @@ load_saved_integration_profiles()
 init_auth_state()
 if "show_add_user_form" not in st.session_state:
     st.session_state["show_add_user_form"] = False
+
 current_role = st.session_state.get("user_role", "Executive Viewer")
-allowed_tabs = get_allowed_tabs(current_role)
-visible_primary_tabs = [tab for tab in PRIMARY_TABS if tab in allowed_tabs]
-visible_secondary_tabs = list(SECONDARY_TABS)
+visible_primary_tabs = get_allowed_tabs(current_role)
+visible_secondary_tabs = list(get_allowed_secondary_tabs(current_role))
 if current_role == "Admin" and "User Management" not in visible_secondary_tabs:
     visible_secondary_tabs.append("User Management")
+
+if st.session_state.get("active_tab") not in (visible_primary_tabs + visible_secondary_tabs):
+    fallback_tabs = visible_primary_tabs + visible_secondary_tabs
+    st.session_state["active_tab"] = fallback_tabs[0] if fallback_tabs else "Executive"
 
 if not st.session_state.get("logged_in", False):
     st.markdown(
@@ -2846,7 +2820,8 @@ if not st.session_state.get("logged_in", False):
             box-shadow: none !important;
             padding: 0 !important;
         }
-        div[data-testid="stForm"] [data-testid="stFormSubmitButton"] > button {
+        div[data-testid="stForm"] [data-testid="stFormSubmitButton"] > button,
+        div[data-testid="stFormSubmitButton"] > button {
             height: 44px !important;
             border-radius: 12px !important;
             border: 1px solid var(--primary) !important;
@@ -2855,7 +2830,8 @@ if not st.session_state.get("logged_in", False):
             font-weight: 800 !important;
             box-shadow: none !important;
         }
-        div[data-testid="stForm"] [data-testid="stFormSubmitButton"] > button:hover {
+        div[data-testid="stForm"] [data-testid="stFormSubmitButton"] > button:hover,
+        div[data-testid="stFormSubmitButton"] > button:hover {
             background: var(--primary-2) !important;
             border-color: var(--primary-2) !important;
         }
@@ -3468,7 +3444,13 @@ with st.sidebar:
 # =========================================================
 # TOP TOOLBAR
 # =========================================================
-last_refresh_label = st.session_state.last_refresh.strftime("%Y-%m-%d %H:%M") if st.session_state.last_refresh else "Not refreshed"
+last_refresh_value = st.session_state.last_refresh
+if hasattr(last_refresh_value, "strftime"):
+    last_refresh_label = last_refresh_value.strftime("%Y-%m-%d %H:%M")
+elif last_refresh_value:
+    last_refresh_label = str(last_refresh_value)
+else:
+    last_refresh_label = "Not refreshed"
 
 st.markdown(
     f"""
@@ -3495,12 +3477,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+active_tab = st.session_state.active_tab
+
 # =========================================================
 # ACTION BAR
 # =========================================================
-active_tab_for_layout = st.session_state.get("active_tab", "Executive")
-
-if active_tab_for_layout != "User Management":
+if active_tab != "User Management":
     st.markdown(
         """
         <div class="upload-shell">
@@ -3540,71 +3522,50 @@ if active_tab_for_layout != "User Management":
                 st.warning("Please upload at least one file.")
             else:
                 try:
-                    edi_files = []
-                    dnfb_files = []
-                    denial_files = []
-                    results: List[Dict[str, Any]] = []
+                    edi_files = [f for f in uploaded_files if not f.name.lower().endswith((".xlsx", ".xls", ".csv"))]
+                    tabular_files = [f for f in uploaded_files if f.name.lower().endswith((".xlsx", ".xls", ".csv"))]
 
-                    for uf in uploaded_files:
-                        raw = uf.read()
-                        ext = uf.name.lower().split(".")[-1]
-
-                        if ext in {"xlsx", "xls"} or "dnfb" in uf.name.lower():
-                            dnfb_files.append((uf.name, raw))
-                            continue
-                        if ext == "csv" or "denial" in uf.name.lower():
-                            denial_files.append((uf.name, raw))
-                            continue
-
-                        ftype = detect_file_type(uf.name, raw)
-                        if ftype == "835":
-                            parsed = parse_835(raw, uf.name) if PARSER_V5_AVAILABLE else fallback_parse_835(raw, uf.name)
-                        elif ftype in {"837P", "837I"}:
-                            parsed = (parse_837p(raw, uf.name) if ftype == "837P" else parse_837i(raw, uf.name)) if PARSER_V5_AVAILABLE else fallback_parse_837(raw, uf.name, ftype)
-                        else:
-                            st.warning(f"Skipping unsupported file: {uf.name}")
-                            continue
-
-                        parsed["file_name"] = uf.name
-                        parsed["file_type"] = ftype
-                        parsed["processed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        parsed["parser_mode"] = "v5" if PARSER_V5_AVAILABLE else "fallback"
-                        results.append(parsed)
-                        edi_files.append((uf.name, raw))
-
-                    claims_df, service_df, summary_df, exec_df = flatten_if_needed(results)
-                    claims_df = enrich_claims(normalize_dates(claims_df))
-                    service_df = normalize_dates(service_df)
-                    summary_df = normalize_dates(summary_df)
-                    exec_df = normalize_dates(exec_df)
-
-                    if dnfb_files:
-                        dnfb_name, dnfb_raw = dnfb_files[0]
-                        dnfb_df = parse_dnfb_any(dnfb_raw, dnfb_name)
-                        dnfb_df = enrich_dnfb(normalize_dates(dnfb_df))
+                    if edi_files:
+                        parsed_results, claims_df, service_df, summary_df, exec_df, parser_mode = process_files(edi_files)
                     else:
-                        dnfb_df = pd.DataFrame()
+                        parsed_results, claims_df, service_df, summary_df, exec_df, parser_mode = [], pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), "No EDI Uploaded"
 
-                    if denial_files:
-                        denial_name, denial_raw = denial_files[0]
-                        denial_df = parse_denials_any(denial_raw, denial_name)
-                        denial_df = enrich_denials(normalize_dates(denial_df))
-                    else:
-                        denial_df = pd.DataFrame()
+                    dnfb_source_files = [f for f in tabular_files if "dnfb" in f.name.lower()]
+                    denial_source_files = [f for f in tabular_files if "denial" in f.name.lower()]
+                    other_excel_files = [f for f in tabular_files if f not in dnfb_source_files and f not in denial_source_files]
 
-                    st.session_state.parsed_results = results
+                    dnfb_frames = [read_dnfb_excel(f) for f in dnfb_source_files]
+                    dnfb_frames += [read_dnfb_excel(f) for f in other_excel_files]
+                    dnfb_frames = [df for df in dnfb_frames if not df.empty]
+                    dnfb_df = pd.concat(dnfb_frames, ignore_index=True) if dnfb_frames else pd.DataFrame()
+
+                    denial_raw_frames = [read_denials_excel(f) for f in denial_source_files]
+                    denial_raw_frames = [df for df in denial_raw_frames if not df.empty]
+                    denial_df = pd.concat([df[~df["excluded_carc_flag"]].copy() for df in denial_raw_frames], ignore_index=True) if denial_raw_frames else pd.DataFrame()
+                    denial_df_raw_excluded = pd.concat([df[df["excluded_carc_flag"]].copy() for df in denial_raw_frames], ignore_index=True) if denial_raw_frames else pd.DataFrame()
+
+                    st.session_state.parsed_results = parsed_results
                     st.session_state.claims_df = claims_df
                     st.session_state.service_df = service_df
                     st.session_state.summary_df = summary_df
                     st.session_state.exec_df = exec_df
                     st.session_state.dnfb_df = dnfb_df
                     st.session_state.denial_df = denial_df
-                    st.session_state.denial_df_raw_excluded = pd.DataFrame()
-                    st.session_state.parser_mode = "V5" if PARSER_V5_AVAILABLE else "Fallback"
-                    st.session_state.last_refresh = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    st.session_state.source_mode = "Data Loaded"
+                    st.session_state.denial_df_raw_excluded = denial_df_raw_excluded
+                    st.session_state.parser_mode = parser_mode
+                    st.session_state.last_refresh = datetime.now()
                     st.session_state.upload_panel_expanded = False
-                    st.success("Files processed successfully.")
+
+                    source_parts = []
+                    if edi_files:
+                        source_parts.append("EDI Files")
+                    if dnfb_source_files:
+                        source_parts.append("DNFB File")
+                    if denial_source_files:
+                        source_parts.append("Denials File")
+                    st.session_state.source_mode = " + ".join(source_parts) if source_parts else "Uploaded Files"
+
+                    st.success(f"Processed {len(uploaded_files)} file(s) successfully. You can reopen this section anytime.")
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Processing failed: {exc}")
@@ -4822,8 +4783,6 @@ elif active_tab == "DNFB Executive":
             "dnfb_executive.xlsx",
             "dl_dnfb_excel",
         )
-
-
 
 elif active_tab == "User Management":
     if current_role != "Admin":
